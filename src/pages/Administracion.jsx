@@ -1,38 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { authFetch } from "../lib/api.js";
 import PendientesRevision from "../components/PendientesRevision.jsx";
 import SectionHeader from "../components/SectionHeader.jsx";
 import TablaAsignaciones, { ESTADOS, TIPOS_ASIGNACION } from "../components/TablaAsignaciones.jsx";
-import { REGIONES, comunasDe } from "../lib/regionesComunas.js";
-import { formatearRut, rutValido } from "../lib/rut.js";
-
-const EMPRESA_VACIA = {
-    nombre: "", rut: "", rubro: "", representanteLegal: "",
-    direccion: "", comuna: "", region: "", telefono: "", email: "",
-    nombreFantasia: "", giro: "", rutRepresentanteLegal: "",
-    tamanoEmpresa: "", chileproveedoresRegistrado: false, chileproveedoresCodigo: "",
-    sitioWeb: "", estado: "ACTIVA", logoBase64: null, logoTipoContenido: null,
-};
-
-const TAMANOS_EMPRESA = [
-    { valor: "", etiqueta: "Sin definir" },
-    { valor: "MICRO", etiqueta: "Micro" },
-    { valor: "PEQUENA", etiqueta: "Pequeña" },
-    { valor: "MEDIANA", etiqueta: "Mediana" },
-    { valor: "GRANDE", etiqueta: "Grande" },
-];
-
-// FileReader.readAsDataURL da "data:image/png;base64,AAAA..." -- el
-// backend (CrearEmpresaRequest.logoBase64) espera solo la parte de
-// despues de la coma, sin el prefijo.
-function archivoABase64(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(",")[1] || "");
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
+import EmpresaForm, { EMPRESA_VACIA, TAMANOS_EMPRESA, archivoABase64 } from "../components/EmpresaForm.jsx";
 
 // Panel exclusivo de rol GLOBAL (ADMIN) -- ver Sidebar.jsx, solo aparece
 // el link si claims.alcance === "GLOBAL". A diferencia de MiEmpresa.jsx
@@ -63,13 +35,18 @@ export default function Administracion() {
 // Empresas: CRUD completo, sin acotar a ninguna en particular.
 // ---------------------------------------------------------------------
 function SeccionEmpresas() {
+    const navigate = useNavigate();
     const [empresas, setEmpresas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [logoUrls, setLogoUrls] = useState({}); // { [empresaId]: blobUrl }
 
+    // Ya no hay edición inline acá -- "Editar" navega al panel de detalle
+    // de la empresa (ver EmpresaDetalle.jsx), que además de los mismos
+    // campos muestra sus usuarios y en qué están trabajando. Este form
+    // solo se usa para "+ Nueva empresa" (crear no tiene detalle previo
+    // que mostrar).
     const [mostrarForm, setMostrarForm] = useState(false);
-    const [editando, setEditando] = useState(null);
     const [form, setForm] = useState(EMPRESA_VACIA);
     const [logoPreview, setLogoPreview] = useState(null); // preview del archivo recien elegido, antes de guardar
     const [guardando, setGuardando] = useState(false);
@@ -108,37 +85,8 @@ function SeccionEmpresas() {
     }, []);
 
     function abrirCreacion() {
-        setEditando(null);
         setForm(EMPRESA_VACIA);
         setLogoPreview(null);
-        setErrorForm(null);
-        setMostrarForm(true);
-    }
-
-    function abrirEdicion(empresa) {
-        setEditando(empresa.id);
-        setForm({
-            nombre: empresa.nombre || "",
-            rut: empresa.rut || "",
-            rubro: empresa.rubro || "",
-            representanteLegal: empresa.representanteLegal || "",
-            direccion: empresa.direccion || "",
-            comuna: empresa.comuna || "",
-            region: empresa.region || "",
-            telefono: empresa.telefono || "",
-            email: empresa.email || "",
-            nombreFantasia: empresa.nombreFantasia || "",
-            giro: empresa.giro || "",
-            rutRepresentanteLegal: empresa.rutRepresentanteLegal || "",
-            tamanoEmpresa: empresa.tamanoEmpresa || "",
-            chileproveedoresRegistrado: !!empresa.chileproveedoresRegistrado,
-            chileproveedoresCodigo: empresa.chileproveedoresCodigo || "",
-            sitioWeb: empresa.sitioWeb || "",
-            estado: empresa.estado || "ACTIVA",
-            logoBase64: null,
-            logoTipoContenido: null,
-        });
-        setLogoPreview(logoUrls[empresa.id] || null);
         setErrorForm(null);
         setMostrarForm(true);
     }
@@ -155,10 +103,10 @@ function SeccionEmpresas() {
         setGuardando(true);
         setErrorForm(null);
         try {
-            const esEdicion = editando !== null;
-            const url = esEdicion ? `/auth/empresas/${editando}` : "/auth/empresas";
-            const res = await authFetch(url, {
-                method: esEdicion ? "PUT" : "POST",
+            // Solo crea -- editar ya no pasa por acá (ver comentario de
+            // arriba, ahora vive en EmpresaDetalle.jsx).
+            const res = await authFetch(`/auth/empresas`, {
+                method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(form),
             });
@@ -260,7 +208,8 @@ function SeccionEmpresas() {
                                             </span>
                                         </td>
                                         <td className="text-end">
-                                            <button type="button" className="btn btn-sm btn-outline-secondary me-2" onClick={() => abrirEdicion(e)}>
+                                            <button type="button" className="btn btn-sm btn-outline-secondary me-2"
+                                                onClick={() => navigate(`/administracion/empresas/${e.id}`)}>
                                                 Editar
                                             </button>
                                             <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => eliminar(e)}>
@@ -277,166 +226,8 @@ function SeccionEmpresas() {
 
             {mostrarForm && (
                 <form className="mt-3 pt-3 border-top" onSubmit={guardar}>
-                    <h6>{editando !== null ? "Editar empresa" : "Nueva empresa"}</h6>
-
-                    <p className="text-muted mb-2 mt-3" style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Identificación
-                    </p>
-                    <div className="row g-2">
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Nombre</label>
-                            <input className="form-control" placeholder="Razón social" value={form.nombre} required
-                                onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} />
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Nombre de fantasía</label>
-                            <input className="form-control" placeholder="Nombre comercial, si es distinto" value={form.nombreFantasia}
-                                onChange={(e) => setForm((f) => ({ ...f, nombreFantasia: e.target.value }))} />
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>RUT</label>
-                            <input className={`form-control ${form.rut && !rutValido(form.rut) ? "is-invalid" : ""}`}
-                                placeholder="Ej: 76.123.456-7" value={form.rut} maxLength={12}
-                                onChange={(e) => setForm((f) => ({ ...f, rut: formatearRut(e.target.value) }))} />
-                            {form.rut && !rutValido(form.rut) && (
-                                <div className="invalid-feedback">RUT inválido (dígito verificador no corresponde).</div>
-                            )}
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Rubro</label>
-                            <input className="form-control" placeholder="Ej: Construcción" value={form.rubro}
-                                onChange={(e) => setForm((f) => ({ ...f, rubro: e.target.value }))} />
-                            <p className="text-muted mb-0 mt-1" style={{ fontSize: "0.75rem" }}>Usado para filtrar licitaciones/compras.</p>
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Giro</label>
-                            <input className="form-control" placeholder="Actividad económica (SII)" value={form.giro}
-                                onChange={(e) => setForm((f) => ({ ...f, giro: e.target.value }))} />
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Tamaño de empresa</label>
-                            <select className="form-control" value={form.tamanoEmpresa}
-                                onChange={(e) => setForm((f) => ({ ...f, tamanoEmpresa: e.target.value }))}>
-                                {TAMANOS_EMPRESA.map((t) => (
-                                    <option key={t.valor} value={t.valor}>{t.etiqueta}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-
-                    <p className="text-muted mb-2 mt-3" style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Representante legal
-                    </p>
-                    <div className="row g-2">
-                        <div className="col-md-6">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Nombre</label>
-                            <input className="form-control" value={form.representanteLegal}
-                                onChange={(e) => setForm((f) => ({ ...f, representanteLegal: e.target.value }))} />
-                        </div>
-                        <div className="col-md-6">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>RUT</label>
-                            <input className={`form-control ${form.rutRepresentanteLegal && !rutValido(form.rutRepresentanteLegal) ? "is-invalid" : ""}`}
-                                placeholder="Ej: 12.345.678-5" value={form.rutRepresentanteLegal} maxLength={12}
-                                onChange={(e) => setForm((f) => ({ ...f, rutRepresentanteLegal: formatearRut(e.target.value) }))} />
-                            {form.rutRepresentanteLegal && !rutValido(form.rutRepresentanteLegal) && (
-                                <div className="invalid-feedback">RUT inválido (dígito verificador no corresponde).</div>
-                            )}
-                        </div>
-                    </div>
-
-                    <p className="text-muted mb-2 mt-3" style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Contacto y ubicación
-                    </p>
-                    <div className="row g-2">
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Teléfono</label>
-                            <input className="form-control" value={form.telefono}
-                                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} />
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Email de contacto</label>
-                            <input type="email" className="form-control" value={form.email}
-                                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Sitio web</label>
-                            <input className="form-control" placeholder="https://..." value={form.sitioWeb}
-                                onChange={(e) => setForm((f) => ({ ...f, sitioWeb: e.target.value }))} />
-                        </div>
-                        <div className="col-md-6">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Dirección</label>
-                            <input className="form-control" value={form.direccion}
-                                onChange={(e) => setForm((f) => ({ ...f, direccion: e.target.value }))} />
-                        </div>
-                        <div className="col-md-3">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Región</label>
-                            <select className="form-control" value={form.region}
-                                onChange={(e) => setForm((f) => ({ ...f, region: e.target.value, comuna: "" }))}>
-                                <option value="">Seleccione...</option>
-                                {REGIONES.map((r) => (
-                                    <option key={r.nombre} value={r.nombre}>{r.nombre}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div className="col-md-3">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Comuna</label>
-                            {/* Depende de la región elegida arriba -- deshabilitada hasta
-                                que haya una región, así no se puede quedar con una comuna
-                                que no le corresponde. */}
-                            <select className="form-control" value={form.comuna} disabled={!form.region}
-                                onChange={(e) => setForm((f) => ({ ...f, comuna: e.target.value }))}>
-                                <option value="">{form.region ? "Seleccione..." : "Elija región primero"}</option>
-                                {comunasDe(form.region).map((c) => (
-                                    <option key={c} value={c}>{c}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-
-                    <p className="text-muted mb-2 mt-3" style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Mercado Público
-                    </p>
-                    <div className="row g-2 align-items-end">
-                        <div className="col-md-4 d-flex align-items-center pb-2">
-                            <div className="form-check">
-                                <input
-                                    type="checkbox" className="form-check-input" id="chileproveedoresCheck"
-                                    checked={form.chileproveedoresRegistrado}
-                                    onChange={(e) => setForm((f) => ({ ...f, chileproveedoresRegistrado: e.target.checked }))}
-                                />
-                                <label className="form-check-label" htmlFor="chileproveedoresCheck" style={{ fontSize: "0.85rem" }}>
-                                    Inscrita en ChileProveedores
-                                </label>
-                            </div>
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Código ChileProveedores</label>
-                            <input className="form-control" value={form.chileproveedoresCodigo}
-                                onChange={(e) => setForm((f) => ({ ...f, chileproveedoresCodigo: e.target.value }))} />
-                        </div>
-                        <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Estado de la cuenta</label>
-                            <select className="form-control" value={form.estado}
-                                onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value }))}>
-                                <option value="ACTIVA">Activa</option>
-                                <option value="INACTIVA">Inactiva</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <p className="text-muted mb-2 mt-3" style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Logo
-                    </p>
-                    <div className="d-flex align-items-center gap-3">
-                        {logoPreview && (
-                            <img src={logoPreview} alt="" style={{ width: 56, height: 56, objectFit: "contain", borderRadius: 6, background: "var(--bg-elevated-2)" }} />
-                        )}
-                        <input
-                            type="file" accept="image/*" className="form-control"
-                            style={{ maxWidth: "320px" }}
-                            onChange={(e) => elegirLogo(e.target.files?.[0])}
-                        />
-                    </div>
+                    <h6>Nueva empresa</h6>
+                    <EmpresaForm form={form} setForm={setForm} logoPreview={logoPreview} onElegirLogo={elegirLogo} />
 
                     {errorForm && <div className="alert alert-danger mt-2 mb-0">{errorForm}</div>}
                     <div className="mt-2 d-flex gap-2">
