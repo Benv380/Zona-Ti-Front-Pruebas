@@ -3,6 +3,8 @@ import { authFetch } from "../lib/api.js";
 import PendientesRevision from "../components/PendientesRevision.jsx";
 import SectionHeader from "../components/SectionHeader.jsx";
 import TablaAsignaciones, { ESTADOS, TIPOS_ASIGNACION } from "../components/TablaAsignaciones.jsx";
+import { REGIONES, comunasDe } from "../lib/regionesComunas.js";
+import { formatearRut, rutValido } from "../lib/rut.js";
 
 const EMPRESA_VACIA = {
     nombre: "", rut: "", rubro: "", representanteLegal: "",
@@ -293,8 +295,12 @@ function SeccionEmpresas() {
                         </div>
                         <div className="col-md-4">
                             <label className="form-label" style={{ fontSize: "0.85rem" }}>RUT</label>
-                            <input className="form-control" placeholder="Ej: 76.123.456-7" value={form.rut}
-                                onChange={(e) => setForm((f) => ({ ...f, rut: e.target.value }))} />
+                            <input className={`form-control ${form.rut && !rutValido(form.rut) ? "is-invalid" : ""}`}
+                                placeholder="Ej: 76.123.456-7" value={form.rut} maxLength={12}
+                                onChange={(e) => setForm((f) => ({ ...f, rut: formatearRut(e.target.value) }))} />
+                            {form.rut && !rutValido(form.rut) && (
+                                <div className="invalid-feedback">RUT inválido (dígito verificador no corresponde).</div>
+                            )}
                         </div>
                         <div className="col-md-4">
                             <label className="form-label" style={{ fontSize: "0.85rem" }}>Rubro</label>
@@ -329,8 +335,12 @@ function SeccionEmpresas() {
                         </div>
                         <div className="col-md-6">
                             <label className="form-label" style={{ fontSize: "0.85rem" }}>RUT</label>
-                            <input className="form-control" value={form.rutRepresentanteLegal}
-                                onChange={(e) => setForm((f) => ({ ...f, rutRepresentanteLegal: e.target.value }))} />
+                            <input className={`form-control ${form.rutRepresentanteLegal && !rutValido(form.rutRepresentanteLegal) ? "is-invalid" : ""}`}
+                                placeholder="Ej: 12.345.678-5" value={form.rutRepresentanteLegal} maxLength={12}
+                                onChange={(e) => setForm((f) => ({ ...f, rutRepresentanteLegal: formatearRut(e.target.value) }))} />
+                            {form.rutRepresentanteLegal && !rutValido(form.rutRepresentanteLegal) && (
+                                <div className="invalid-feedback">RUT inválido (dígito verificador no corresponde).</div>
+                            )}
                         </div>
                     </div>
 
@@ -359,14 +369,27 @@ function SeccionEmpresas() {
                                 onChange={(e) => setForm((f) => ({ ...f, direccion: e.target.value }))} />
                         </div>
                         <div className="col-md-3">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Comuna</label>
-                            <input className="form-control" value={form.comuna}
-                                onChange={(e) => setForm((f) => ({ ...f, comuna: e.target.value }))} />
+                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Región</label>
+                            <select className="form-control" value={form.region}
+                                onChange={(e) => setForm((f) => ({ ...f, region: e.target.value, comuna: "" }))}>
+                                <option value="">Seleccione...</option>
+                                {REGIONES.map((r) => (
+                                    <option key={r.nombre} value={r.nombre}>{r.nombre}</option>
+                                ))}
+                            </select>
                         </div>
                         <div className="col-md-3">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Región</label>
-                            <input className="form-control" value={form.region}
-                                onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))} />
+                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Comuna</label>
+                            {/* Depende de la región elegida arriba -- deshabilitada hasta
+                                que haya una región, así no se puede quedar con una comuna
+                                que no le corresponde. */}
+                            <select className="form-control" value={form.comuna} disabled={!form.region}
+                                onChange={(e) => setForm((f) => ({ ...f, comuna: e.target.value }))}>
+                                <option value="">{form.region ? "Seleccione..." : "Elija región primero"}</option>
+                                {comunasDe(form.region).map((c) => (
+                                    <option key={c} value={c}>{c}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
 
