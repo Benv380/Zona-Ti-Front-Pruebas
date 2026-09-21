@@ -154,6 +154,11 @@ function CompraRapida() {
     const [compras, setCompras] = useState([]);
     const [listLoading, setListLoading] = useState(false);
 
+    // Ultima palabra clave buscada -- se necesita aparte de "codigo" (el
+    // input se puede seguir editando) para que el paginador (que reusa
+    // obtenerTodasCompras) sepa con qué texto pedir la página siguiente.
+    const [terminoBusqueda, setTerminoBusqueda] = useState("");
+
     // Cartera completa de Mercado Público, paginada de a 15 -- ver
     // CompraAgilController.listarUltimasOchoHoras en compra-service.
     const [pagina, setPagina] = useState(1);
@@ -214,19 +219,34 @@ function CompraRapida() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vista, pagina]);
 
+    // La misma barra de arriba sirve para las 2 cosas: si lo que se
+    // escribió tiene forma de código (lleva guiones), se busca ESA compra
+    // puntual (comportamiento de siempre); si no, se interpreta como
+    // palabra clave y se busca en el cache local (ver buscarPorPalabraClave).
     async function handleSubmit(e) {
         e.preventDefault();
-        const codigoLimpio = normalizarCodigo(codigo);
-        if (!codigoLimpio) return;
+        const textoLimpio = codigo.trim();
+        if (!textoLimpio) return;
+
+        if (pareceCodigoValido(normalizarCodigo(textoLimpio))) {
+            await buscarPorCodigo(textoLimpio);
+        } else {
+            await buscarPorPalabraClave(textoLimpio, 1);
+        }
+    }
+
+    async function buscarPorCodigo(textoLimpio) {
+        const codigoLimpio = normalizarCodigo(textoLimpio);
 
         setLoading(true);
         setError(null);
         setData(null);
         setArchivos([]);
         setPreview(null);
-        // Si ya habia una lista mostrada ("Ver todo"/"Ver mi filtro"), se
-        // limpia -- si no, la busqueda por codigo quedaba mezclada con la
-        // lista entera mostrandose debajo (ver mismo fix en Licitacion.jsx).
+        // Si ya habia una lista mostrada ("Ver todo"/"Ver mi filtro"/
+        // busqueda por palabra clave), se limpia -- si no, la busqueda por
+        // codigo quedaba mezclada con la lista entera mostrandose debajo
+        // (ver mismo fix en Licitacion.jsx).
         setCompras([]);
         setPaginacion(null);
 
@@ -260,6 +280,42 @@ function CompraRapida() {
             setError(err.message);
         } finally {
             setLoading(false);
+        }
+    }
+
+    // Busca por palabra clave en el cache local (nombre/descripcion/
+    // organismo comprador) -- GET /compra/agil/buscar, ver
+    // CompraAgilController. Reusa la MISMA grilla+paginador que "Ver todo"
+    // (setCompras/setPaginacion), asi el resultado se ve y se pagina igual
+    // que cualquier otra lista.
+    async function buscarPorPalabraClave(texto, paginaSolicitada) {
+        setLoading(true);
+        setListLoading(true);
+        setError(null);
+        setData(null);
+        setArchivos([]);
+        setPreview(null);
+        setVista("busqueda");
+        setTerminoBusqueda(texto);
+
+        try {
+            const res = await authFetch(`/compra/agil/buscar?q=${encodeURIComponent(texto)}&pagina=${paginaSolicitada}&tamano=15`);
+            if (!res.ok) {
+                throw new Error(`El servidor respondió con estado ${res.status}`);
+            }
+            const json = await res.json();
+            const items = json?.payload?.items || [];
+            setCompras(items);
+            setPagina(paginaSolicitada);
+            setPaginacion(json?.payload?.paginacion || null);
+            if (items.length === 0) {
+                setError(`No se encontraron compras ágiles que coincidan con "${texto}".`);
+            }
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+            setListLoading(false);
         }
     }
 
@@ -328,6 +384,14 @@ function CompraRapida() {
     }
 
     async function obtenerTodasCompras(paginaSolicitada = pagina) {
+        // "busqueda" (palabra clave) no vive en ENDPOINT_POR_VISTA -- necesita
+        // el "q" del último término buscado, así que el paginador (que
+        // siempre llama acá) lo redirige a buscarPorPalabraClave en vez de
+        // pisarlo con la lista sin filtrar.
+        if (vista === "busqueda") {
+            return buscarPorPalabraClave(terminoBusqueda, paginaSolicitada);
+        }
+
         setListLoading(true);
         setError(null);
         try {
@@ -387,7 +451,7 @@ function CompraRapida() {
         <div className="d-flex flex-column align-items-center p-4">
             <h1>Consulta Compra Ágil</h1>
 
-            <p>Ingrese el código de una Compra Ágil (ej: 1234-5-COT26) para ver su detalle.</p>
+            <p>Ingrese el código de una Compra Ágil (ej: 1234-5-COT26) o una palabra clave para buscar.</p>
 
 
             <form className="card-panel mb-4" style={{ maxWidth: "560px", width: "100%" }} onSubmit={handleSubmit}>
@@ -396,7 +460,7 @@ function CompraRapida() {
                         type="text"
                         className="form-control"
                         style={{ minWidth: "220px", flex: 1 }}
-                        placeholder="Código de compra ágil"
+                        placeholder="Código, o palabra clave (ej: materiales eléctricos)"
                         value={codigo}
                         onChange={(e) => setCodigo(e.target.value)}
                     />
@@ -405,7 +469,7 @@ function CompraRapida() {
                     </button>
                     {codigo.trim() && !pareceCodigoValido(normalizarCodigo(codigo)) && (
                         <p className="w-100 mb-0 text-muted" style={{ fontSize: "0.8rem" }}>
-                            El código normalmente lleva guiones, ej: 1234-5-COT26.
+                            No parece un código (esos llevan guiones, ej: 1234-5-COT26) — se va a buscar como palabra clave.
                         </p>
                     )}
                 </div>
@@ -508,7 +572,7 @@ function CompraRapida() {
 
             {compras.length > 0 && (
                 <div className="w-100 mb-4">
-                    <h5>Compras encontradas</h5>
+                    <h5>{vista === "busqueda" ? `Resultados para "${terminoBusqueda}"` : "Compras encontradas"}</h5>
                     <div className="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
                         {compras.map((item) => (
                             <div className="col" key={item.codigo}>
