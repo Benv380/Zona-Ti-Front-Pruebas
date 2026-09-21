@@ -1,0 +1,6 @@
+allowBuilds:
+  # core-js es una dependencia transitiva de jspdf (polyfills) -- su script
+  # de postinstall solo muestra un mensaje pidiendo donaciones, no compila
+  # nada nativo ni hace falta para que jspdf funcione. Se deniega por
+  # default salvo que se compruebe que hace falta.
+  core-js: false
