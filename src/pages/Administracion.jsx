@@ -478,7 +478,13 @@ function SeccionUsuarios() {
     const rolSeleccionado = roles.find((r) => r.nombre === form.rolNombre);
     const necesitaEmpresa = rolSeleccionado ? rolSeleccionado.alcance !== "GLOBAL" : false;
 
+    // Recarga empresas/roles al abrir el form, no solo al montar la página:
+    // "Empresas" es una sección hermana con su propio estado (ver
+    // SeccionEmpresas más arriba) -- si se crea una empresa ahí y después se
+    // abre "+ Nuevo usuario" sin recargar la página entera, esta lista
+    // quedaba desactualizada y la empresa nueva no aparecía en el select.
     function abrirCreacion() {
+        cargar();
         setEditando(null);
         setForm({ name: "", lastName: "", email: "", username: "", password: "", rolNombre: roles[0]?.nombre || "", empresaId: "" });
         setErrorForm(null);
@@ -486,6 +492,7 @@ function SeccionUsuarios() {
     }
 
     function abrirEdicion(usuario) {
+        cargar();
         setEditando(usuario.id);
         setForm({
             name: usuario.name || "", lastName: usuario.lastName || "", email: usuario.email || "",
