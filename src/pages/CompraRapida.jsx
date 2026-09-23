@@ -262,13 +262,17 @@ function CompraRapida() {
             const json = await res.json();
             // El backend responde 200 igual cuando el codigo no existe o
             // todavia no se sincronizo (success:"false", payload:null) --
-            // sin este chequeo, la pagina quedaba con un hueco vacio y los
-            // botones de asignar/recomendar sueltos, sin decir claramente
-            // que paso. "errors[0].mensaje" distingue "no se sincronizo
-            // todavia" (ver CompraAgilService.getDetalleByCodigo) de "no
-            // existe" -- se usa ese texto si vino, es mas preciso.
+            // el detalle es 100% cache (ver CompraAgilService.
+            // getDetalleByCodigo), asi que ya no hay forma de distinguir
+            // "codigo invalido" de "recien publicado, todavia sin
+            // sincronizar": ninguno de los dos esta listo para mostrarse
+            // todavia. Se deja la pantalla como estaba, sin alerta --
+            // decision explicita del usuario: si no se puede garantizar
+            // que cargue rapido y completo, ni se muestra, en vez de
+            // avisar que "todavia no esta" (una compra real recien
+            // publicada va a aparecer sola en cuanto el scheduler la
+            // sincronice, hasta 10 min).
             if (!json?.payload) {
-                setError(json?.errors?.[0]?.mensaje || `No se encontró ninguna compra ágil con el código "${codigoLimpio}".`);
                 return;
             }
             setData(json);
@@ -438,10 +442,14 @@ function CompraRapida() {
             ]);
             const jsonDetalle = resDetalle.ok ? await resDetalle.json() : null;
             const jsonAdjuntos = resAdjuntos.ok ? await resAdjuntos.json() : null;
+            // No debería pasar nunca en la práctica: solo se llega acá
+            // haciendo clic en una tarjeta que ya viene de una lista
+            // filtrada por detalle completo (ver CompraAgilRepository) --
+            // se deja como red de seguridad por si acaso, sin sonar a error.
             setModalDetalle({
                 cargando: false,
                 item: jsonDetalle?.payload || null,
-                error: jsonDetalle?.payload ? null : jsonDetalle?.errors?.[0]?.mensaje || "No se encontró esta compra ágil.",
+                error: jsonDetalle?.payload ? null : "Todavía no está disponible, intente nuevamente en unos minutos.",
                 archivos: jsonAdjuntos?.payload?.files || [],
             });
         } catch (err) {
