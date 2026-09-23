@@ -4,6 +4,7 @@ import { fechaCierreDe } from "../lib/fechas.js";
 import PendientesRevision from "../components/PendientesRevision.jsx";
 import SectionHeader from "../components/SectionHeader.jsx";
 import TablaAsignaciones, { TIPOS_ASIGNACION } from "../components/TablaAsignaciones.jsx";
+import { REGIONES } from "../lib/regionesComunas.js";
 
 // Mismo mapeo que endpointsPorTipo en MisActivas.jsx -- se duplica acá
 // (una funcion de 4 lineas) en vez de compartirla, mismo criterio que el
@@ -270,52 +271,73 @@ function SeccionUsuarios({ empresaId }) {
     );
 }
 
-// Filtro de búsqueda de la empresa (rubro/palabras clave/región). Ya
-// funciona de verdad (PUT /auth/empresas/{id}/perfil) -- lo único
-// pendiente es que se llene solo con un LLM en vez de a mano, ver nota.
+// Filtros de búsqueda de la empresa (rubro/palabras clave/región) -- desde
+// el multi-filtro (2026-09-23) una empresa puede tener VARIOS guardados a
+// la vez (antes era uno solo por empresa), cada uno con su nombre propio.
+// Compra Ágil ("Ver mi filtro") busca la unión de todos. Ya funciona de
+// verdad (POST/PUT/DELETE /auth/.../perfiles) -- lo único pendiente es
+// poder completarlo solo con un asistente en vez de a mano.
+const FILTRO_VACIO = { nombre: "", rubro: "", palabrasClave: "", regionCodigo: "", regionNombre: "" };
 
 function SeccionFiltroBusqueda({ empresaId }) {
-    const [form, setForm] = useState({ rubro: "", palabrasClave: "", regionCodigo: "", regionNombre: "" });
+    const [perfiles, setPerfiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+
+    const [mostrarForm, setMostrarForm] = useState(false);
+    const [editando, setEditando] = useState(null); // id del perfil, o null si es uno nuevo
+    const [form, setForm] = useState(FILTRO_VACIO);
     const [guardando, setGuardando] = useState(false);
-    const [guardadoOk, setGuardadoOk] = useState(false);
+    const [errorForm, setErrorForm] = useState(null);
+
+    async function cargar() {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await authFetch(`/auth/empresas/${empresaId}/perfiles`);
+            if (!res.ok) throw new Error(`El servidor respondió con estado ${res.status}`);
+            setPerfiles(await res.json());
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    }
 
     useEffect(() => {
-        let cancelado = false;
-        async function cargar() {
-            setLoading(true);
-            setError(null);
-            try {
-                const res = await authFetch(`/auth/perfil/me`);
-                if (!res.ok) throw new Error(`El servidor respondió con estado ${res.status}`);
-                const json = await res.json();
-                if (!cancelado) {
-                    setForm({
-                        rubro: json.rubro || "",
-                        palabrasClave: json.palabrasClave || "",
-                        regionCodigo: json.regionCodigo || "",
-                        regionNombre: json.regionNombre || "",
-                    });
-                }
-            } catch (err) {
-                if (!cancelado) setError(err.message);
-            } finally {
-                if (!cancelado) setLoading(false);
-            }
-        }
         cargar();
-        return () => { cancelado = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [empresaId]);
+
+    function abrirCreacion() {
+        setEditando(null);
+        setForm(FILTRO_VACIO);
+        setErrorForm(null);
+        setMostrarForm(true);
+    }
+
+    function abrirEdicion(perfil) {
+        setEditando(perfil.id);
+        setForm({
+            nombre: perfil.nombre || "",
+            rubro: perfil.rubro || "",
+            palabrasClave: perfil.palabrasClave || "",
+            regionCodigo: perfil.regionCodigo || "",
+            regionNombre: perfil.regionNombre || "",
+        });
+        setErrorForm(null);
+        setMostrarForm(true);
+    }
 
     async function guardar(e) {
         e.preventDefault();
         setGuardando(true);
-        setError(null);
-        setGuardadoOk(false);
+        setErrorForm(null);
         try {
-            const res = await authFetch(`/auth/empresas/${empresaId}/perfil`, {
-                method: "PUT",
+            const esEdicion = editando !== null;
+            const url = esEdicion ? `/auth/perfiles/${editando}` : `/auth/empresas/${empresaId}/perfiles`;
+            const res = await authFetch(url, {
+                method: esEdicion ? "PUT" : "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(form),
             });
@@ -323,54 +345,137 @@ function SeccionFiltroBusqueda({ empresaId }) {
                 const texto = await res.text().catch(() => "");
                 throw new Error(texto || `El servidor respondió con estado ${res.status}`);
             }
-            setGuardadoOk(true);
+            setMostrarForm(false);
+            await cargar();
         } catch (err) {
-            setError(err.message);
+            setErrorForm(err.message);
         } finally {
             setGuardando(false);
         }
     }
 
+    async function eliminar(perfil) {
+        if (!window.confirm(`¿Eliminar el filtro "${perfil.nombre}"?`)) return;
+        try {
+            const res = await authFetch(`/auth/perfiles/${perfil.id}`, { method: "DELETE" });
+            if (!res.ok && res.status !== 204) {
+                const texto = await res.text().catch(() => "");
+                throw new Error(texto || `El servidor respondió con estado ${res.status}`);
+            }
+            await cargar();
+        } catch (err) {
+            setError(err.message);
+        }
+    }
+
     return (
         <div className="card-panel mb-4">
-            <SectionHeader icono="bi-funnel-fill" titulo="Filtro de búsqueda" subtitulo="Rubro, palabras clave y región" />
+            <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <SectionHeader icono="bi-funnel-fill" titulo="Filtros de búsqueda" subtitulo="Rubro, palabras clave y región" />
+                <button type="button" className="btn btn-primary btn-sm" onClick={abrirCreacion}>
+                    + Nuevo filtro
+                </button>
+            </div>
             <p className="text-muted mb-3" style={{ fontSize: "0.85rem" }}>
-                Define qué licitaciones y compras ágiles va a ver tu empresa (rubro, palabras clave, región).
-                Por ahora se configura a mano acá. Más adelante un asistente lo va a completar solo a partir
-                de una descripción libre de tu negocio (pendiente).
+                Definen qué licitaciones y compras ágiles va a ver tu empresa -- si guardás más de uno, se
+                muestra la unión de todos (alcanza con que coincida con cualquiera). El <strong>rubro</strong> es
+                solo para identificarlo (ej: "Construcción"); lo que realmente filtra son las <strong>palabras
+                clave</strong> (ej: "materiales eléctricos, cemento") y la <strong>región</strong>.
             </p>
 
-            {loading ? (
-                <p className="text-muted mb-0">Cargando...</p>
-            ) : (
-                <form onSubmit={guardar}>
+            {loading && <p className="text-muted mb-0">Cargando...</p>}
+            {error && <div className="alert alert-danger">{error}</div>}
+
+            {!loading && !error && (
+                perfiles.length === 0 ? (
+                    <p className="text-muted mb-0">Todavía no hay ningún filtro guardado.</p>
+                ) : (
+                    <div className="table-responsive">
+                        <table className="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th className="d-none d-md-table-cell">Rubro</th>
+                                    <th className="d-none d-md-table-cell">Palabras clave</th>
+                                    <th>Región</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {perfiles.map((p) => (
+                                    <tr key={p.id}>
+                                        <td>{p.nombre}</td>
+                                        <td className="d-none d-md-table-cell">{p.rubro || "-"}</td>
+                                        <td className="d-none d-md-table-cell">{p.palabrasClave || "-"}</td>
+                                        <td>{p.regionNombre || "-"}</td>
+                                        <td className="text-end">
+                                            <button type="button" className="btn btn-sm btn-outline-secondary me-2" onClick={() => abrirEdicion(p)}>
+                                                Editar
+                                            </button>
+                                            <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => eliminar(p)}>
+                                                Eliminar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            )}
+
+            {mostrarForm && (
+                <form className="mt-3 pt-3 border-top" onSubmit={guardar}>
+                    <h6>{editando !== null ? "Editar filtro" : "Nuevo filtro"}</h6>
                     <div className="row g-2">
-                        <div className="col-md-6">
+                        <div className="col-md-4">
+                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Nombre del filtro</label>
+                            <input className="form-control" placeholder="Ej: Construcción RM" value={form.nombre} required
+                                onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} />
+                        </div>
+                        <div className="col-md-4">
                             <label className="form-label" style={{ fontSize: "0.85rem" }}>Rubro</label>
                             <input className="form-control" placeholder="Ej: Construcción" value={form.rubro} required
                                 onChange={(e) => setForm((f) => ({ ...f, rubro: e.target.value }))} />
                         </div>
-                        <div className="col-md-6">
+                        <div className="col-md-4">
                             <label className="form-label" style={{ fontSize: "0.85rem" }}>Palabras clave</label>
                             <input className="form-control" placeholder="Ej: materiales electricos" value={form.palabrasClave} required
                                 onChange={(e) => setForm((f) => ({ ...f, palabrasClave: e.target.value }))} />
                         </div>
-                        <div className="col-md-3">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Código de región</label>
-                            <input className="form-control" placeholder="Ej: 13" value={form.regionCodigo} required
-                                onChange={(e) => setForm((f) => ({ ...f, regionCodigo: e.target.value }))} />
-                        </div>
-                        <div className="col-md-9">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Nombre de la región</label>
-                            <input className="form-control" placeholder="Ej: Metropolitana" value={form.regionNombre}
-                                onChange={(e) => setForm((f) => ({ ...f, regionNombre: e.target.value }))} />
+                        <div className="col-md-4">
+                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Región</label>
+                            {/* Un solo select en vez de 2 inputs de texto libre
+                                (codigo + nombre) -- antes había que saber de
+                                memoria el numero de region que usa Mercado
+                                Publico, ahora se elige por nombre y el codigo
+                                se completa solo (ver REGIONES en
+                                lib/regionesComunas.js). */}
+                            <select className="form-control" value={form.regionCodigo} required
+                                onChange={(e) => {
+                                    const region = REGIONES.find((r) => String(r.codigo) === e.target.value);
+                                    setForm((f) => ({
+                                        ...f,
+                                        regionCodigo: e.target.value,
+                                        regionNombre: region?.nombre || "",
+                                    }));
+                                }}>
+                                <option value="">Seleccione...</option>
+                                {REGIONES.map((r) => (
+                                    <option key={r.codigo} value={r.codigo}>{r.nombre}</option>
+                                ))}
+                            </select>
                         </div>
                     </div>
-                    {error && <div className="alert alert-danger mt-2 mb-0">{error}</div>}
-                    {guardadoOk && <div className="alert alert-success mt-2 mb-0">Guardado.</div>}
-                    <button type="submit" className="btn btn-primary btn-sm mt-2" disabled={guardando}>
-                        {guardando ? "Guardando..." : "Guardar filtro"}
-                    </button>
+                    {errorForm && <div className="alert alert-danger mt-2 mb-0">{errorForm}</div>}
+                    <div className="mt-2 d-flex gap-2">
+                        <button type="submit" className="btn btn-primary btn-sm" disabled={guardando}>
+                            {guardando ? "Guardando..." : "Guardar filtro"}
+                        </button>
+                        <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setMostrarForm(false)}>
+                            Cancelar
+                        </button>
+                    </div>
                 </form>
             )}
         </div>

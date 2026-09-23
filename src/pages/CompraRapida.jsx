@@ -14,12 +14,16 @@ const MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingm
 const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 // "todas" -> /listar (cacheado, cartera completa de Mercado Publico,
-// paginada). "filtro" -> /compra/agil?... (Puerta 2, acotado ademas por
-// el perfil de la empresa -- rubro/palabras clave/region). Ver
-// CompraAgilService.buscar() en compra-service.
+// paginada). "filtro" -> /compra/agil/mi-filtro (cacheado tambien, acotado
+// por el perfil de la empresa -- rubro/palabras clave/region). Antes
+// "filtro" pegaba en vivo a Mercado Publico en cada clic (Puerta 2,
+// /compra/agil) -- se cambio a leer del cache local por lo mismo que ya
+// se resolvio para "todas" y la busqueda por palabra clave: evitar la
+// espera de hasta 20s contra la API externa. Ver
+// CompraAgilService.buscarPorPerfil() en compra-service.
 const ENDPOINT_POR_VISTA = {
     todas: "/compra/agil/listar",
-    filtro: "/compra/agil",
+    filtro: "/compra/agil/mi-filtro",
     // Mismo cache/ventana de 48h que "todas", pero acotado a las que ya
     // pasaron a un 2do llamado (el primero no recibio suficientes
     // ofertas y Mercado Publico republico con plazo extendido). Ver
@@ -256,12 +260,15 @@ function CompraRapida() {
                 throw new Error(`El servidor respondió con estado ${res.status}`);
             }
             const json = await res.json();
-            // Mercado Publico responde 200 igual cuando el codigo no existe
-            // (success:"false", payload:null) -- sin este chequeo, la
-            // pagina quedaba con un hueco vacio y los botones de asignar/
-            // recomendar sueltos, sin decir claramente que no encontro nada.
+            // El backend responde 200 igual cuando el codigo no existe o
+            // todavia no se sincronizo (success:"false", payload:null) --
+            // sin este chequeo, la pagina quedaba con un hueco vacio y los
+            // botones de asignar/recomendar sueltos, sin decir claramente
+            // que paso. "errors[0].mensaje" distingue "no se sincronizo
+            // todavia" (ver CompraAgilService.getDetalleByCodigo) de "no
+            // existe" -- se usa ese texto si vino, es mas preciso.
             if (!json?.payload) {
-                setError(`No se encontró ninguna compra ágil con el código "${codigoLimpio}".`);
+                setError(json?.errors?.[0]?.mensaje || `No se encontró ninguna compra ágil con el código "${codigoLimpio}".`);
                 return;
             }
             setData(json);
@@ -419,13 +426,13 @@ function CompraRapida() {
         setModalDetalle({ cargando: true });
         setModalPreview(null);
         try {
+            // El detalle (y los adjuntos) ahora son 100% cache -- nunca le
+            // pegan en vivo a Mercado Publico (ver CompraAgilService.
+            // getDetalleByCodigo/AdjuntoService.listar, decision 2026-09-23:
+            // la pagina tiene que seguir funcionando aunque Mercado Publico
+            // este caido/lento). El timeout generoso ya no es por eso --
+            // se deja igual nomas por si la red anda rara.
             const [resDetalle, resAdjuntos] = await Promise.all([
-                // timeoutMs mas generoso -- si no esta cacheado con el
-                // detalle completo (detalle_completo=true), compra-service
-                // le pega en vivo a Mercado Publico (hasta 20s del lado
-                // del backend, ver CompraAgilClient) antes de responder.
-                // Esto es justo lo que hacia "quedar en timeout" al abrir
-                // un item que solo se habia sincronizado por el listado.
                 authFetch(`/compra/agil/${encodeURIComponent(codigoExterno)}`, { timeoutMs: 25000 }),
                 authFetch(`/compra/agil/${encodeURIComponent(codigoExterno)}/adjuntos`),
             ]);
@@ -434,6 +441,7 @@ function CompraRapida() {
             setModalDetalle({
                 cargando: false,
                 item: jsonDetalle?.payload || null,
+                error: jsonDetalle?.payload ? null : jsonDetalle?.errors?.[0]?.mensaje || "No se encontró esta compra ágil.",
                 archivos: jsonAdjuntos?.payload?.files || [],
             });
         } catch (err) {
