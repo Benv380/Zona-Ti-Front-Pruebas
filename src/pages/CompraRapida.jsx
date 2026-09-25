@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import * as XLSX from "xlsx";
+import AsignacionesCompaneroBadge from "../components/AsignacionesCompaneroBadge.jsx";
 import AsignarBoton from "../components/AsignarBoton.jsx";
 import CompraCard from "../components/CompraCard.jsx";
 import DetalleItem from "../components/DetalleItem.jsx";
@@ -191,6 +192,31 @@ function CompraRapida() {
             .catch(() => {});
     }, []);
 
+    // Cruce de datos entre usuarios/admins de la misma empresa: por cada
+    // codigo, quien MAS (aparte de mi) ya lo tiene asignado -- para no
+    // duplicar trabajo sin tener que preguntar. Se excluye a mi mismo (ya
+    // se muestra aparte como "Asignada a mí" via misCodigos). GLOBAL/sin
+    // empresa recibe [] del backend (ver AsignacionService.
+    // misCodigosEmpresa) -- el mapa queda vacio, ningun badge se muestra.
+    const [asignacionesCompaneros, setAsignacionesCompaneros] = useState(new Map());
+
+    useEffect(() => {
+        const miUsername = getClaims()?.username;
+        authFetch(`/auth/me/empresa/asignaciones?tipo=COMPRA_AGIL`)
+            .then((r) => (r.ok ? r.json() : []))
+            .then((filas) => {
+                const mapa = new Map();
+                for (const fila of filas) {
+                    if (fila.username === miUsername) continue;
+                    const lista = mapa.get(fila.codigoExterno) || [];
+                    lista.push(fila.username);
+                    mapa.set(fila.codigoExterno, lista);
+                }
+                setAsignacionesCompaneros(mapa);
+            })
+            .catch(() => {});
+    }, []);
+
     const [archivos, setArchivos] = useState([]);
     const [preview, setPreview] = useState(null); // { modo, url?, blob?, nombre }
     const [cargandoArchivo, setCargandoArchivo] = useState(null);
@@ -210,6 +236,16 @@ function CompraRapida() {
             if (modalPreview?.url) URL.revokeObjectURL(modalPreview.url);
         };
     }, [modalPreview]);
+
+    // Carga la lista sola al entrar a la pagina -- antes habia que apretar
+    // "Mostrar compras" a mano incluso para ver la vista por defecto
+    // ("todas"). Solo al montar (deps vacias): cambiar de vista despues ya
+    // dispara su propia carga desde el onClick de cada boton (ver mas
+    // abajo), no hace falta que este effect reaccione a eso tambien.
+    useEffect(() => {
+        obtenerTodasCompras(1);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Depende de "vista"/"pagina" -- si no, el auto-refresh seguiria
     // pegado para siempre a la vista/página que estaba seleccionada al
@@ -394,19 +430,24 @@ function CompraRapida() {
         }
     }
 
-    async function obtenerTodasCompras(paginaSolicitada = pagina) {
+    // "vistaSolicitada" aparte de "vista" (por defecto la del estado actual)
+    // -- lo necesitan los botones de "Ver todo"/"Ver mi filtro"/"En 2do
+    // llamado": al hacer click cambian la vista Y piden la lista en el
+    // mismo gesto (ver mas abajo), y setVista() todavia no se aplico
+    // cuando se llama esta funcion (React lo deja para el proximo render).
+    async function obtenerTodasCompras(paginaSolicitada = pagina, vistaSolicitada = vista) {
         // "busqueda" (palabra clave) no vive en ENDPOINT_POR_VISTA -- necesita
         // el "q" del último término buscado, así que el paginador (que
         // siempre llama acá) lo redirige a buscarPorPalabraClave en vez de
         // pisarlo con la lista sin filtrar.
-        if (vista === "busqueda") {
+        if (vistaSolicitada === "busqueda") {
             return buscarPorPalabraClave(terminoBusqueda, paginaSolicitada);
         }
 
         setListLoading(true);
         setError(null);
         try {
-            const res = await authFetch(`${ENDPOINT_POR_VISTA[vista]}?pagina=${paginaSolicitada}&tamano=15`);
+            const res = await authFetch(`${ENDPOINT_POR_VISTA[vistaSolicitada]}?pagina=${paginaSolicitada}&tamano=15`);
             if (!res.ok) {
                 throw new Error(`El servidor respondió con estado ${res.status}`);
             }
@@ -529,7 +570,9 @@ function CompraRapida() {
                             tipo="COMPRA_AGIL"
                             yaAsignada={misCodigos.has(data?.payload?.codigo)}
                             onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
+                            onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
                         />
+                        <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(data?.payload?.codigo)} />
                         {esAdmin && data?.payload?.codigo && (
                             <AsignarBoton codigoExterno={data.payload.codigo} tipo="COMPRA_AGIL" />
                         )}
@@ -540,15 +583,18 @@ function CompraRapida() {
 
             {/* "Ver todo" = /listar (cartera completa, paginada). "Ver mi
                 filtro" = Puerta 2 (/compra/agil, acotado ademas por el
-                perfil de la empresa). El toggle no dispara la busqueda
-                sola, hay que apretar "Mostrar" de nuevo. */}
+                perfil de la empresa). Cada boton ya dispara la carga solo
+                -- no hace falta un "Mostrar compras" aparte (antes exigia
+                ese segundo click incluso para la vista por defecto). */}
             <div className="btn-group mb-3 flex-wrap" role="group">
                 <button
                     type="button"
                     className={`btn btn-sm ${vista === "todas" ? "btn-primary" : "btn-outline-secondary"}`}
+                    disabled={listLoading}
                     onClick={() => {
                         setVista("todas");
                         setPagina(1);
+                        obtenerTodasCompras(1, "todas");
                     }}
                 >
                     Ver todo
@@ -556,9 +602,11 @@ function CompraRapida() {
                 <button
                     type="button"
                     className={`btn btn-sm ${vista === "filtro" ? "btn-primary" : "btn-outline-secondary"}`}
+                    disabled={listLoading}
                     onClick={() => {
                         setVista("filtro");
                         setPagina(1);
+                        obtenerTodasCompras(1, "filtro");
                     }}
                 >
                     Ver mi filtro
@@ -566,25 +614,18 @@ function CompraRapida() {
                 <button
                     type="button"
                     className={`btn btn-sm ${vista === "segundoLlamado" ? "btn-primary" : "btn-outline-secondary"}`}
+                    disabled={listLoading}
                     onClick={() => {
                         setVista("segundoLlamado");
                         setPagina(1);
+                        obtenerTodasCompras(1, "segundoLlamado");
                     }}
                 >
                     En 2do llamado
                 </button>
             </div>
 
-            <div className="d-flex gap-2 mb-3">
-                <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => obtenerTodasCompras(1)}
-                    disabled={listLoading}
-                >
-                    {listLoading ? "Cargando compras..." : "Mostrar compras"}
-                </button>
-            </div>
+            {listLoading && compras.length === 0 && <p className="text-muted">Cargando compras...</p>}
 
             {compras.length > 0 && (
                 <div className="w-100 mb-4">
@@ -592,7 +633,12 @@ function CompraRapida() {
                     <div className="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
                         {compras.map((item) => (
                             <div className="col" key={item.codigo}>
-                                <CompraCard item={item} onClick={() => abrirModal(item.codigo)} asignadaAMi={misCodigos.has(item.codigo)} />
+                                <CompraCard
+                                    item={item}
+                                    onClick={() => abrirModal(item.codigo)}
+                                    asignadaAMi={misCodigos.has(item.codigo)}
+                                    otrosUsuarios={asignacionesCompaneros.get(item.codigo)}
+                                />
                             </div>
                         ))}
                     </div>
@@ -611,7 +657,9 @@ function CompraRapida() {
                                 tipo="COMPRA_AGIL"
                                 yaAsignada={misCodigos.has(modalCodigo)}
                                 onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
+                                onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
                             />
+                            <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(modalCodigo)} />
                             {esAdmin && <AsignarBoton codigoExterno={modalCodigo} tipo="COMPRA_AGIL" />}
                         </div>
 

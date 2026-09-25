@@ -112,12 +112,16 @@ function DetalleCompraAgil({ item }) {
     // CompraAgilDto). Se usa el que haya.
     const presupuesto = item.presupuesto || item.montos || {};
     const productos = item.productos_solicitados || [];
+    // Mismo fix que CompraCard.jsx: "fecha_cierre" queda con la fecha del
+    // 1er llamado (ya pasada) cuando la compra entra a un 2do llamado --
+    // sin este fallback se veia siempre "Cerrada" aunque siga vigente.
+    const fechaCierre = item.fechas?.fecha_cierre_segundo_llamado || item.fechas?.fecha_cierre;
 
     return (
         <div>
             <div className="d-flex flex-wrap align-items-center gap-2 mb-1">
                 <h6 className="mb-0">{item.nombre}</h6>
-                <BadgeCierre fecha={item.fechas?.fecha_cierre} />
+                <BadgeCierre fecha={fechaCierre} />
             </div>
             <p className="mb-2" style={{ fontSize: "0.85rem" }}>
                 {item.estado?.glosa || "Sin estado"}{item.convocatoria?.descripcion ? ` · ${item.convocatoria.descripcion}` : ""}

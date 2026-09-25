@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import AsignacionesCompaneroBadge from "../components/AsignacionesCompaneroBadge.jsx";
 import AsignarBoton from "../components/AsignarBoton.jsx";
 import DetalleItem from "../components/DetalleItem.jsx";
 import { FilePreviewPanel, descargarBlob, resolverPreview } from "../components/FilePreview";
@@ -55,6 +56,29 @@ function Licitacion() {
             .catch(() => {});
     }, []);
 
+    // Cruce de datos entre usuarios/admins de la misma empresa (mismo
+    // criterio que CompraRapida.jsx): por cada codigo, quien MAS (aparte de
+    // mi) ya lo tiene asignado. Se excluye a mi mismo -- ya se muestra
+    // aparte como "Asignada a mí" via misCodigos.
+    const [asignacionesCompaneros, setAsignacionesCompaneros] = useState(new Map());
+
+    useEffect(() => {
+        const miUsername = getClaims()?.username;
+        authFetch(`/auth/me/empresa/asignaciones?tipo=LICITACION`)
+            .then((r) => (r.ok ? r.json() : []))
+            .then((filas) => {
+                const mapa = new Map();
+                for (const fila of filas) {
+                    if (fila.username === miUsername) continue;
+                    const lista = mapa.get(fila.codigoExterno) || [];
+                    lista.push(fila.username);
+                    mapa.set(fila.codigoExterno, lista);
+                }
+                setAsignacionesCompaneros(mapa);
+            })
+            .catch(() => {});
+    }, []);
+
     // "Recomendar/asignarme esto" esta disponible para cualquier rol (el
     // backend ya lo permite -- ver AsignacionService.recomendar, por
     // default se autoasigna si no se elige destinatario). "Asignar a un
@@ -81,6 +105,14 @@ function Licitacion() {
             if (modalPreview?.url) URL.revokeObjectURL(modalPreview.url);
         };
     }, [modalPreview]);
+
+    // Carga la lista sola al entrar a la pagina -- antes habia que apretar
+    // "Mostrar licitaciones" a mano incluso para ver la vista por defecto
+    // ("todas"). Mismo patron que CompraRapida.jsx.
+    useEffect(() => {
+        obtenerTodasLicitaciones(1);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Igual que en Compra Ágil: refresca sola la lista cada 10 minutos, sin
     // que el usuario tenga que volver a apretar el botón. Depende de
@@ -166,11 +198,17 @@ function Licitacion() {
         }
     }
 
-    async function obtenerTodasLicitaciones(paginaSolicitada = pagina) {
+    // "vistaSolicitada" aparte de "vista" (por defecto la del estado actual)
+    // -- la necesitan los botones de "Ver todo"/"Ver mi filtro": al hacer
+    // click cambian la vista Y piden la lista en el mismo gesto (ver mas
+    // abajo), y setVista() todavia no se aplico cuando se llama esta
+    // funcion (React lo deja para el proximo render). Mismo patron que
+    // CompraRapida.jsx.
+    async function obtenerTodasLicitaciones(paginaSolicitada = pagina, vistaSolicitada = vista) {
         setListLoading(true);
         setError(null);
         try {
-            const res = await authFetch(`${ENDPOINT_POR_VISTA[vista]}?pagina=${paginaSolicitada}&tamano=15`);
+            const res = await authFetch(`${ENDPOINT_POR_VISTA[vistaSolicitada]}?pagina=${paginaSolicitada}&tamano=15`);
             if (!res.ok) {
                 throw new Error(`El servidor respondió con estado ${res.status}`);
             }
@@ -307,7 +345,9 @@ function Licitacion() {
                             tipo="LICITACION"
                             yaAsignada={misCodigos.has(data?.Listado?.[0]?.CodigoExterno)}
                             onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
+                            onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
                         />
+                        <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(data?.Listado?.[0]?.CodigoExterno)} />
                         {esAdmin && data?.Listado?.[0]?.CodigoExterno && (
                             <AsignarBoton codigoExterno={data.Listado[0].CodigoExterno} tipo="LICITACION" />
                         )}
@@ -318,17 +358,19 @@ function Licitacion() {
 
             {/* "Ver todo" = /listar (cartera completa, paginada).
                 "Ver mi filtro" = /mi-filtro (acotado ademas por el perfil de
-                la empresa -- rubro/palabras clave/region). El toggle no
-                dispara la busqueda solo, hay que apretar "Mostrar" de nuevo
-                -- evita pegarle al backend en cada click si alguien va
-                cambiando de vista antes de decidirse. */}
+                la empresa -- rubro/palabras clave/region). Cada boton ya
+                dispara la carga solo -- no hace falta un "Mostrar
+                licitaciones" aparte (antes exigia ese segundo click incluso
+                para la vista por defecto). */}
             <div className="btn-group mb-3" role="group">
                 <button
                     type="button"
                     className={`btn btn-sm ${vista === "todas" ? "btn-primary" : "btn-outline-secondary"}`}
+                    disabled={listLoading}
                     onClick={() => {
                         setVista("todas");
                         setPagina(1);
+                        obtenerTodasLicitaciones(1, "todas");
                     }}
                 >
                     Ver todo
@@ -336,25 +378,18 @@ function Licitacion() {
                 <button
                     type="button"
                     className={`btn btn-sm ${vista === "filtro" ? "btn-primary" : "btn-outline-secondary"}`}
+                    disabled={listLoading}
                     onClick={() => {
                         setVista("filtro");
                         setPagina(1);
+                        obtenerTodasLicitaciones(1, "filtro");
                     }}
                 >
                     Ver mi filtro
                 </button>
             </div>
 
-            <div className="d-flex gap-2 mb-3">
-                <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => obtenerTodasLicitaciones(1)}
-                    disabled={listLoading}
-                >
-                    {listLoading ? "Cargando licitaciones..." : "Mostrar licitaciones"}
-                </button>
-            </div>
+            {listLoading && licitaciones.length === 0 && <p className="text-muted">Cargando licitaciones...</p>}
 
             {licitaciones.length > 0 && (
                 <div className="w-100 mb-4">
@@ -362,7 +397,12 @@ function Licitacion() {
                     <div className="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
                         {licitaciones.map((item) => (
                             <div className="col" key={item.CodigoExterno}>
-                                <LicitacionCard item={item} onClick={() => abrirModal(item.CodigoExterno)} asignadaAMi={misCodigos.has(item.CodigoExterno)} />
+                                <LicitacionCard
+                                    item={item}
+                                    onClick={() => abrirModal(item.CodigoExterno)}
+                                    asignadaAMi={misCodigos.has(item.CodigoExterno)}
+                                    otrosUsuarios={asignacionesCompaneros.get(item.CodigoExterno)}
+                                />
                             </div>
                         ))}
                     </div>
@@ -381,7 +421,9 @@ function Licitacion() {
                                 tipo="LICITACION"
                                 yaAsignada={misCodigos.has(modalCodigo)}
                                 onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
+                                onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
                             />
+                            <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(modalCodigo)} />
                             {esAdmin && <AsignarBoton codigoExterno={modalCodigo} tipo="LICITACION" />}
                         </div>
 
@@ -447,7 +489,9 @@ function Licitacion() {
                             tipo="LICITACION"
                             yaAsignada={misCodigos.has(data?.Listado?.[0]?.CodigoExterno)}
                             onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
+                            onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
                         />
+                        <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(data?.Listado?.[0]?.CodigoExterno)} />
                         {esAdmin && data?.Listado?.[0]?.CodigoExterno && (
                             <AsignarBoton codigoExterno={data.Listado[0].CodigoExterno} tipo="LICITACION" />
                         )}

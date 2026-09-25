@@ -10,12 +10,13 @@ import { authFetch } from "../lib/api.js";
 // vacio y enviar" -- nada obvio. Quedan separadas porque no son
 // excluyentes entre si (uno puede asignarselo a si mismo Y ademas
 // recomendarselo a un compañero).
-export default function RecomendarBoton({ codigoExterno, tipo, yaAsignada = false, onAsignado }) {
+export default function RecomendarBoton({ codigoExterno, tipo, yaAsignada = false, onAsignado, onQuitado }) {
     const [companeros, setCompaneros] = useState([]);
     const [destinatarioId, setDestinatarioId] = useState("");
     const [abierto, setAbierto] = useState(false);
 
     const [asignandome, setAsignandome] = useState(false);
+    const [quitandome, setQuitandome] = useState(false);
     // "yaAsignada" la calcula la pagina que llama (cruzando el codigo contra
     // GET /auth/me/asignaciones) -- asi el boton arranca ya en "Asignada a
     // mí" si corresponde, en vez de dejar que alguien reintente y se
@@ -64,6 +65,28 @@ export default function RecomendarBoton({ codigoExterno, tipo, yaAsignada = fals
         }
     }
 
+    // DELETE /auth/me/asignaciones (auth-service) -- simetrico a asignarme(),
+    // el propio usuario se saca a si mismo sin necesitar el id de la fila,
+    // solo el codigo (ver AsignacionController.quitarme).
+    async function quitarme() {
+        setQuitandome(true);
+        setError(null);
+        try {
+            const params = new URLSearchParams({ codigoExterno, tipo });
+            const res = await authFetch(`/auth/me/asignaciones?${params}`, { method: "DELETE" });
+            if (!res.ok) {
+                const texto = await res.text().catch(() => "");
+                throw new Error(texto || `El servidor respondió con estado ${res.status}`);
+            }
+            setAsignado(false);
+            onQuitado?.(codigoExterno);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setQuitandome(false);
+        }
+    }
+
     async function recomendar() {
         if (!destinatarioId) return;
         setEnviando(true);
@@ -86,10 +109,16 @@ export default function RecomendarBoton({ codigoExterno, tipo, yaAsignada = fals
     return (
         <div className="d-flex flex-wrap align-items-center gap-2">
             {asignado ? (
-                <span className="badge badge-rol-global">
-                    <i className="bi bi-check-circle-fill me-1"></i>
-                    Asignada a mí
-                </span>
+                <>
+                    <span className="badge badge-rol-global">
+                        <i className="bi bi-check-circle-fill me-1"></i>
+                        Asignada a mí
+                    </span>
+                    <button type="button" className="btn btn-outline-danger btn-sm" disabled={quitandome} onClick={quitarme}>
+                        <i className="bi bi-x-circle me-1"></i>
+                        {quitandome ? "Quitando..." : "Quitarme"}
+                    </button>
+                </>
             ) : (
                 <button type="button" className="btn btn-outline-primary btn-sm" disabled={asignandome} onClick={asignarme}>
                     <i className="bi bi-person-check-fill me-1"></i>
