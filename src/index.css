@@ -544,6 +544,13 @@ body .text-body-secondary {
   }
 }
 
+/* Variante para el modal de detalle de Compra Agil cuando muestra el panel
+   "Perfil del comprador" al lado -- el ancho normal (760px) queda muy
+   apretado para 2 columnas. */
+.modal-panel-custom--ancho {
+  max-width: 1180px;
+}
+
 /* Cuenta regresiva de cierre (ver BadgeCierre.jsx) -- color segun
    urgencia: ya cerro (gris, igual que badge-rol-usuario), cierra hoy/
    mañana (rojo), cierra en pocos dias (amarillo), cierra mas adelante

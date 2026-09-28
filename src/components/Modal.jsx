@@ -4,7 +4,7 @@
 // el fondo oscuro, la X, o con Escape.
 import { useEffect } from "react";
 
-export default function Modal({ show, onClose, titulo, children }) {
+export default function Modal({ show, onClose, titulo, children, ancho = false }) {
     useEffect(() => {
         if (!show) return;
         function alTeclado(e) {
@@ -19,7 +19,7 @@ export default function Modal({ show, onClose, titulo, children }) {
     return (
         <>
             <div className="modal-backdrop-custom" onClick={onClose}></div>
-            <div className="modal-panel-custom" role="dialog" aria-modal="true">
+            <div className={`modal-panel-custom${ancho ? " modal-panel-custom--ancho" : ""}`} role="dialog" aria-modal="true">
                 <div className="d-flex justify-content-between align-items-center mb-3">
                     <h5 className="mb-0 text-truncate pe-2">{titulo}</h5>
                     <button type="button" className="btn btn-sm btn-outline-secondary flex-shrink-0" onClick={onClose}>

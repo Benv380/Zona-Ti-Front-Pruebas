@@ -6,6 +6,8 @@ import DetalleItem from "./DetalleItem.jsx";
 import { FilePreviewPanel, descargarBlob, resolverPreview } from "./FilePreview";
 import GenerarCotizacionBoton from "./GenerarCotizacionBoton.jsx";
 import Modal from "./Modal.jsx";
+import PerfilVendedorPanel from "./PerfilVendedorPanel.jsx";
+import ProveedoresCotizandoPanel from "./ProveedoresCotizandoPanel.jsx";
 import { DocumentosRevision } from "./RevisionCotizacion.jsx";
 
 function endpointDetalle(codigo) {
@@ -162,14 +164,15 @@ export default function CompraAgilResueltas({ completadas }) {
                 show={!!modalAsignacion}
                 onClose={cerrarModal}
                 titulo={modalAsignacion ? `Compra Ágil ${modalAsignacion.codigoExterno}` : ""}
+                ancho
             >
-                {modalAsignacion && (
-                    <>
-                        {detalleModal && <DetalleItem tipo="COMPRA_AGIL" item={detalleModal} />}
+                {modalAsignacion && (() => {
+                    const ganador = detalleModal ? ganadorDe(detalleModal) : null;
+                    return (
+                        <div className="d-flex flex-wrap gap-3 align-items-start">
+                            <div className="flex-grow-1" style={{ minWidth: 0, flexBasis: "420px" }}>
+                                {detalleModal && <DetalleItem tipo="COMPRA_AGIL" item={detalleModal} />}
 
-                        {(() => {
-                            const ganador = detalleModal ? ganadorDe(detalleModal) : null;
-                            return (
                                 <div className="mt-3 pt-3 border-top d-flex align-items-center gap-2">
                                     <BadgeResultado ganador={ganador} rutPropio={rutPropio} />
                                     {ganador && (
@@ -178,33 +181,48 @@ export default function CompraAgilResueltas({ completadas }) {
                                         </span>
                                     )}
                                 </div>
-                            );
-                        })()}
 
-                        <div className="mt-3 pt-3 border-top">
-                            <p className="mb-2 text-muted" style={{ fontSize: "0.8rem" }}>Cotización (para subir a Mercado Público)</p>
-                            <GenerarCotizacionBoton
-                                codigoExterno={modalAsignacion.codigoExterno}
-                                cotizacion={parsearCotizacion(modalAsignacion.cotizacionJson)}
-                                institucion={detalleModal?.institucion}
-                                onGenerado={(blob, nombre) => {
-                                    const resultado = resolverPreview(blob, nombre);
-                                    if (resultado) {
-                                        setPreview(resultado);
-                                    } else {
-                                        descargarBlob(blob, nombre);
-                                    }
-                                }}
-                            />
-                            <FilePreviewPanel preview={preview} onClose={() => setPreview(null)} />
-                        </div>
+                                <div className="mt-3 pt-3 border-top">
+                                    <p className="mb-2 text-muted" style={{ fontSize: "0.8rem" }}>Cotización (para subir a Mercado Público)</p>
+                                    <GenerarCotizacionBoton
+                                        codigoExterno={modalAsignacion.codigoExterno}
+                                        cotizacion={parsearCotizacion(modalAsignacion.cotizacionJson)}
+                                        institucion={detalleModal?.institucion}
+                                        onGenerado={(blob, nombre) => {
+                                            const resultado = resolverPreview(blob, nombre);
+                                            if (resultado) {
+                                                setPreview(resultado);
+                                            } else {
+                                                descargarBlob(blob, nombre);
+                                            }
+                                        }}
+                                    />
+                                    <FilePreviewPanel preview={preview} onClose={() => setPreview(null)} />
+                                </div>
 
-                        <div className="mt-3 pt-3 border-top">
-                            <p className="mb-2 text-muted" style={{ fontSize: "0.8rem" }}>Documentos subidos</p>
-                            <DocumentosRevision asignacionId={modalAsignacion.id} />
+                                <div className="mt-3 pt-3 border-top">
+                                    <p className="mb-2 text-muted" style={{ fontSize: "0.8rem" }}>Documentos subidos</p>
+                                    <DocumentosRevision asignacionId={modalAsignacion.id} />
+                                </div>
+                            </div>
+
+                            {/* Solo cuando ya hay un ganador resuelto -- pedido
+                                explicito: no mostrar el perfil del comprador
+                                aca, solo el del ganador. 2 tarjetas separadas
+                                (no una sola combinada): quien cotizo con que
+                                precio, y aparte el historial del ganador. */}
+                            {ganador && (
+                                <div className="d-flex flex-column gap-3" style={{ width: "320px", flexShrink: 0 }}>
+                                    <ProveedoresCotizandoPanel
+                                        proveedores={detalleModal?.proveedores_cotizando}
+                                        moneda={detalleModal?.presupuesto?.moneda}
+                                    />
+                                    <PerfilVendedorPanel rutProveedor={ganador.rut_proveedor} />
+                                </div>
+                            )}
                         </div>
-                    </>
-                )}
+                    );
+                })()}
             </Modal>
         </div>
     );

@@ -7,6 +7,7 @@ import CompraCard from "../components/CompraCard.jsx";
 import DetalleItem from "../components/DetalleItem.jsx";
 import Modal from "../components/Modal.jsx";
 import Paginador from "../components/Paginador.jsx";
+import PerfilCompradorPanel from "../components/PerfilCompradorPanel.jsx";
 import RecomendarBoton from "../components/RecomendarBoton.jsx";
 import { authFetch, getClaims } from "../lib/api.js";
 import { normalizarCodigo, pareceCodigoValido } from "../lib/codigos.js";
@@ -646,47 +647,53 @@ function CompraRapida() {
                 </div>
             )}
 
-            <Modal show={!!modalCodigo} onClose={cerrarModal} titulo={modalCodigo ? `Compra Ágil ${modalCodigo}` : ""}>
+            <Modal show={!!modalCodigo} onClose={cerrarModal} titulo={modalCodigo ? `Compra Ágil ${modalCodigo}` : ""} ancho>
                 {modalDetalle?.cargando && <p className="text-muted mb-0">Cargando...</p>}
                 {modalDetalle?.error && <div className="alert alert-danger">{modalDetalle.error}</div>}
                 {modalDetalle?.item && (
-                    <>
-                        <div className="d-flex flex-wrap align-items-center gap-2 mb-3 pb-3 border-bottom">
-                            <RecomendarBoton
-                                codigoExterno={modalCodigo}
-                                tipo="COMPRA_AGIL"
-                                yaAsignada={misCodigos.has(modalCodigo)}
-                                onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
-                                onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
-                            />
-                            <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(modalCodigo)} />
-                            {esAdmin && <AsignarBoton codigoExterno={modalCodigo} tipo="COMPRA_AGIL" />}
+                    <div className="d-flex flex-wrap gap-3 align-items-start">
+                        <div className="flex-grow-1" style={{ minWidth: 0, flexBasis: "420px" }}>
+                            <div className="d-flex flex-wrap align-items-center gap-2 mb-3 pb-3 border-bottom">
+                                <RecomendarBoton
+                                    codigoExterno={modalCodigo}
+                                    tipo="COMPRA_AGIL"
+                                    yaAsignada={misCodigos.has(modalCodigo)}
+                                    onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
+                                    onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
+                                />
+                                <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(modalCodigo)} />
+                                {esAdmin && <AsignarBoton codigoExterno={modalCodigo} tipo="COMPRA_AGIL" />}
+                            </div>
+
+                            <DetalleItem tipo="COMPRA_AGIL" item={modalDetalle.item} />
+
+                            <div className="mt-3 pt-3 border-top">
+                                <p className="mb-2 text-muted" style={{ fontSize: "0.8rem" }}>Documentos adjuntos</p>
+                                {modalDetalle.archivos.length === 0 ? (
+                                    <p className="text-muted mb-0" style={{ fontSize: "0.85rem" }}>Sin archivos adjuntos.</p>
+                                ) : (
+                                    <div className="d-flex flex-wrap gap-2">
+                                        {modalDetalle.archivos.map((f) => (
+                                            <button
+                                                key={f.id}
+                                                type="button"
+                                                className="btn btn-outline-secondary btn-sm"
+                                                disabled={modalCargandoArchivo === f.id}
+                                                onClick={() => verArchivoModal(f.id, f.nombreArchivo)}
+                                            >
+                                                {modalCargandoArchivo === f.id ? "Cargando..." : f.nombreArchivo}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                <VisorArchivo preview={modalPreview} onClose={() => setModalPreview(null)} />
+                            </div>
                         </div>
 
-                        <DetalleItem tipo="COMPRA_AGIL" item={modalDetalle.item} />
-
-                        <div className="mt-3 pt-3 border-top">
-                            <p className="mb-2 text-muted" style={{ fontSize: "0.8rem" }}>Documentos adjuntos</p>
-                            {modalDetalle.archivos.length === 0 ? (
-                                <p className="text-muted mb-0" style={{ fontSize: "0.85rem" }}>Sin archivos adjuntos.</p>
-                            ) : (
-                                <div className="d-flex flex-wrap gap-2">
-                                    {modalDetalle.archivos.map((f) => (
-                                        <button
-                                            key={f.id}
-                                            type="button"
-                                            className="btn btn-outline-secondary btn-sm"
-                                            disabled={modalCargandoArchivo === f.id}
-                                            onClick={() => verArchivoModal(f.id, f.nombreArchivo)}
-                                        >
-                                            {modalCargandoArchivo === f.id ? "Cargando..." : f.nombreArchivo}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                            <VisorArchivo preview={modalPreview} onClose={() => setModalPreview(null)} />
+                        <div style={{ width: "320px", flexShrink: 0 }}>
+                            <PerfilCompradorPanel rutInstitucion={modalDetalle.item?.institucion?.rut} />
                         </div>
-                    </>
+                    </div>
                 )}
             </Modal>
         </div>
