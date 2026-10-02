@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import AsignacionesCompaneroBadge from "../components/AsignacionesCompaneroBadge.jsx";
 import AsignarBoton from "../components/AsignarBoton.jsx";
 import DetalleItem from "../components/DetalleItem.jsx";
+import FiltrosBar from "../components/FiltrosBar.jsx";
 import { FilePreviewPanel, descargarBlob, resolverPreview } from "../components/FilePreview";
 import LicitacionCard from "../components/LicitacionCard.jsx";
 import Modal from "../components/Modal.jsx";
@@ -9,6 +10,7 @@ import Paginador from "../components/Paginador.jsx";
 import RecomendarBoton from "../components/RecomendarBoton.jsx";
 import { authFetch, getClaims } from "../lib/api.js";
 import { normalizarCodigo, pareceCodigoValido } from "../lib/codigos.js";
+import { FILTROS_VACIOS, queryStringDeFiltros } from "../lib/filtros.js";
 
 // "todas" -> /listar (cacheado, cartera completa de Mercado Publico,
 // paginada). "filtro" -> /mi-filtro (acotado ademas por el perfil de la
@@ -28,6 +30,10 @@ function Licitacion() {
     const [vista, setVista] = useState("todas");
     const [licitaciones, setLicitaciones] = useState([]);
     const [listLoading, setListLoading] = useState(false);
+
+    // Panel de filtros (orden + region/monto/cierre) -- ver
+    // components/FiltrosBar.jsx, mismo componente que usa CompraRapida.jsx.
+    const [filtros, setFiltros] = useState(FILTROS_VACIOS);
 
     // Cartera completa de Mercado Público, paginada de a 15 -- ver
     // LicitacionController.listarUltimosDias en compra-service.
@@ -204,11 +210,11 @@ function Licitacion() {
     // abajo), y setVista() todavia no se aplico cuando se llama esta
     // funcion (React lo deja para el proximo render). Mismo patron que
     // CompraRapida.jsx.
-    async function obtenerTodasLicitaciones(paginaSolicitada = pagina, vistaSolicitada = vista) {
+    async function obtenerTodasLicitaciones(paginaSolicitada = pagina, vistaSolicitada = vista, filtrosSolicitados = filtros) {
         setListLoading(true);
         setError(null);
         try {
-            const res = await authFetch(`${ENDPOINT_POR_VISTA[vistaSolicitada]}?pagina=${paginaSolicitada}&tamano=15`);
+            const res = await authFetch(`${ENDPOINT_POR_VISTA[vistaSolicitada]}?pagina=${paginaSolicitada}&tamano=15${queryStringDeFiltros(filtrosSolicitados)}`);
             if (!res.ok) {
                 throw new Error(`El servidor respondió con estado ${res.status}`);
             }
@@ -356,38 +362,34 @@ function Licitacion() {
                 </div>
             )}
 
-            {/* "Ver todo" = /listar (cartera completa, paginada).
-                "Ver mi filtro" = /mi-filtro (acotado ademas por el perfil de
-                la empresa -- rubro/palabras clave/region). Cada boton ya
-                dispara la carga solo -- no hace falta un "Mostrar
-                licitaciones" aparte (antes exigia ese segundo click incluso
-                para la vista por defecto). */}
-            <div className="btn-group mb-3" role="group">
-                <button
-                    type="button"
-                    className={`btn btn-sm ${vista === "todas" ? "btn-primary" : "btn-outline-secondary"}`}
-                    disabled={listLoading}
-                    onClick={() => {
-                        setVista("todas");
-                        setPagina(1);
-                        obtenerTodasLicitaciones(1, "todas");
-                    }}
-                >
-                    Ver todo
-                </button>
-                <button
-                    type="button"
-                    className={`btn btn-sm ${vista === "filtro" ? "btn-primary" : "btn-outline-secondary"}`}
-                    disabled={listLoading}
-                    onClick={() => {
-                        setVista("filtro");
-                        setPagina(1);
-                        obtenerTodasLicitaciones(1, "filtro");
-                    }}
-                >
-                    Ver mi filtro
-                </button>
-            </div>
+            {/* "Mostrar todo" = /listar (cartera completa, paginada). "Mis
+                rubros" = /mi-filtro (acotado ademas por el perfil de la
+                empresa -- rubro/palabras clave/region), antes decia "Ver mi
+                filtro". El resto del panel (orden/region/monto/cierre) se
+                aplica SOBRE la vista elegida, ver FiltrosBar.jsx -- mismo
+                componente que usa CompraRapida.jsx, sin "2do llamado" (no
+                existe ese concepto en Licitacion) y con region por NOMBRE
+                en vez de codigo (ver tipoRegion). */}
+            <FiltrosBar
+                vistas={[
+                    { valor: "todas", etiqueta: "Mostrar todo" },
+                    { valor: "filtro", etiqueta: "Mis rubros" },
+                ]}
+                vistaActual={vista}
+                onCambiarVista={(nuevaVista) => {
+                    setVista(nuevaVista);
+                    setPagina(1);
+                    obtenerTodasLicitaciones(1, nuevaVista);
+                }}
+                filtros={filtros}
+                onCambiarFiltros={setFiltros}
+                onAplicar={(nuevosFiltros) => {
+                    setFiltros(nuevosFiltros);
+                    setPagina(1);
+                    obtenerTodasLicitaciones(1, vista, nuevosFiltros);
+                }}
+                tipoRegion="nombre"
+            />
 
             {listLoading && licitaciones.length === 0 && <p className="text-muted">Cargando licitaciones...</p>}
 

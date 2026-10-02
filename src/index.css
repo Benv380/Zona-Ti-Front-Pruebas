@@ -39,6 +39,40 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Tema claro -- se activa poniendo data-theme="light" en <html> (ver
+   src/lib/theme.js + el toggle en Sidebar.jsx). Mismas variables que el
+   :root de arriba, pisadas con valores claros; todo lo demas del archivo
+   ya esta escrito en terminos de estas variables asi que no necesita
+   tocarse, INCLUIDO el sidebar (Sidebar.jsx usa las mismas variables que
+   el resto). --bg mas gris que --bg-elevated a proposito -- si quedan muy
+   parecidos las tarjetas se pierden contra el fondo (se ve "todo blanco",
+   sin profundidad). */
+:root[data-theme="light"] {
+  --bg: #e9ebf1;
+  --bg-elevated: #ffffff;
+  --bg-elevated-2: #e3e6ed;
+  --border: #d3d7e0;
+  --text: #3a3a46;
+  --text-h: #16161a;
+  --text-muted: #6b6b78;
+  --accent: #9333ea;
+  --accent-hover: #7e22ce;
+  --accent-bg: rgba(147, 51, 234, 0.1);
+  --accent-border: rgba(147, 51, 234, 0.4);
+  --accent-2: #0891b2;
+  --accent-2-bg: rgba(8, 145, 178, 0.1);
+  --success: #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.12);
+  --warning: #b45309;
+  --warning-bg: rgba(180, 83, 9, 0.12);
+  --code-bg: #eceef1;
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.1);
+  --shadow: rgba(0, 0, 0, 0.12) 0 10px 25px -5px, rgba(0, 0, 0, 0.08) 0 8px 10px -6px;
+
+  color-scheme: light;
+}
+
 *,
 *::before,
 *::after {
@@ -180,7 +214,7 @@ body .text-body-secondary {
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.6;
-  color: #c9d1d9;
+  color: var(--text);
   white-space: pre;
 }
 
@@ -240,12 +274,34 @@ body .text-body-secondary {
 
 /* Bootstrap le pone azul (--bs-nav-pills-link-active-bg) al link activo
    de un .nav-pills por defecto -- choca directo con la paleta morada del
-   resto de la app. Sidebar.jsx usa nav-pills para el menu principal. */
+   resto de la app. Sidebar.jsx usa nav-pills para el menu principal. El
+   color explicito (no solo el active) es necesario porque .nav-link de
+   Bootstrap trae su propio --bs-nav-link-color fijo, no hereda el color
+   del body -- sin esto, en tema claro el link se veia con el texto oscuro
+   default de Bootstrap en vez de var(--text). */
+.nav-pills .nav-link {
+  color: var(--text);
+}
 .nav-pills .nav-link.active {
   background-color: var(--accent);
+  color: #fff;
 }
 .nav-pills .nav-link:not(.active):hover {
   background-color: var(--bg-elevated-2);
+}
+
+/* Dropdown de Bootstrap (menu de usuario en Sidebar.jsx) -- igual que
+   .nav-link, trae sus propias variables --bs-dropdown-* con colores fijos
+   pensados para fondo claro; se pisan para que seaga la paleta de la app
+   en los 2 temas (antes se usaba la clase dropdown-menu-dark, que forzaba
+   oscuro siempre -- ya no hace falta). */
+.dropdown-menu {
+  --bs-dropdown-bg: var(--bg-elevated);
+  --bs-dropdown-border-color: var(--border);
+  --bs-dropdown-link-color: var(--text);
+  --bs-dropdown-link-hover-color: var(--text-h);
+  --bs-dropdown-link-hover-bg: var(--bg-elevated-2);
+  --bs-dropdown-link-active-bg: var(--accent);
 }
 
 /* Fade-in sutil al entrar a cada pagina -- Layout.jsx se lo pone al

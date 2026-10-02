@@ -21,11 +21,17 @@ export default function Home() {
     const claims = getClaims();
     const esAdmin = claims?.alcance === "EMPRESA" || claims?.alcance === "GLOBAL";
 
-    // Se guarda la lista completa (no solo los conteos) -- un admin
-    // necesita poder revisar y aprobar sus "Pendientes de revisión" acá
-    // mismo, en el dashboard principal, sin tener que ir a Mi Empresa/
-    // Administración para encontrarlas (ver pendientesRevision mas abajo).
-    const [asignaciones, setAsignaciones] = useState(null);
+    // Ya no se guarda la lista cruda de asignaciones -- para GLOBAL sería
+    // TODA la tabla del sistema, sin límite (mismo problema que se
+    // solucionó en Administracion.jsx paginando /auth/asignaciones, ver
+    // ese commit). En su lugar se guardan directo los 3 derivados que
+    // necesita el render (totales, pendientes de revisión, completadas):
+    // para EMPRESA/USUARIO se calculan acá de la lista (acotada, esa sí es
+    // chica); para GLOBAL salen de 3 endpoints livianos aparte (resumen/
+    // pendientes-revision/compra-agil-completadas, ver AsignacionService).
+    const [totales, setTotales] = useState(null);
+    const [pendientesRevision, setPendientesRevision] = useState([]);
+    const [compraAgilCompletadas, setCompraAgilCompletadas] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -37,18 +43,36 @@ export default function Home() {
         setLoading(true);
         setError(null);
         try {
-            // GLOBAL ve todas las empresas juntas, EMPRESA solo la suya,
-            // USUARIO solo lo que tiene asignado a si mismo -- mismos
-            // endpoints que ya usan Administracion.jsx/MiEmpresa.jsx/
-            // MisActivas.jsx para lo mismo.
-            const url = claims?.alcance === "GLOBAL"
-                ? "/auth/asignaciones"
-                : claims?.alcance === "EMPRESA"
-                    ? `/auth/empresas/${claims.empresaId}/asignaciones`
-                    : "/auth/me/asignaciones/detalle";
+            if (claims?.alcance === "GLOBAL") {
+                const [resResumen, resPendientes, resCompletadas] = await Promise.all([
+                    authFetch("/auth/asignaciones/resumen"),
+                    authFetch("/auth/asignaciones/pendientes-revision"),
+                    authFetch("/auth/asignaciones/compra-agil-completadas"),
+                ]);
+                if (!resResumen.ok || !resPendientes.ok || !resCompletadas.ok) {
+                    throw new Error("El servidor respondió con un error al cargar el resumen.");
+                }
+                const resumen = await resResumen.json();
+                setTotales({ licitaciones: resumen.licitacionesActivas, compras: resumen.comprasActivas });
+                setPendientesRevision(await resPendientes.json());
+                setCompraAgilCompletadas(await resCompletadas.json());
+                return;
+            }
+
+            // EMPRESA ve solo la suya, USUARIO solo lo que tiene asignado a
+            // si mismo -- mismos endpoints que ya usan MiEmpresa.jsx/
+            // MisActivas.jsx para lo mismo. Universo chico en los 2 casos
+            // (una sola empresa, o un solo usuario), asi que alcanza con
+            // calcular todo acá mismo sobre la lista completa.
+            const url = claims?.alcance === "EMPRESA"
+                ? `/auth/empresas/${claims.empresaId}/asignaciones`
+                : "/auth/me/asignaciones/detalle";
             const res = await authFetch(url);
             if (!res.ok) throw new Error(`El servidor respondió con estado ${res.status}`);
-            setAsignaciones(await res.json());
+            const asignaciones = await res.json();
+            setTotales(contarActivas(asignaciones));
+            setPendientesRevision(esAdmin ? asignaciones.filter((a) => a.pendienteRevision) : []);
+            setCompraAgilCompletadas(asignaciones.filter((a) => a.tipo === "COMPRA_AGIL" && a.estado === "COMPLETADO"));
         } catch (err) {
             setError(err.message);
         } finally {
@@ -100,15 +124,6 @@ export default function Home() {
             setError(err.message);
         }
     }
-
-    const totales = asignaciones ? contarActivas(asignaciones) : null;
-    const pendientesRevision = esAdmin && asignaciones ? asignaciones.filter((a) => a.pendienteRevision) : [];
-    // Compras Ágiles que el equipo ya dio por terminadas -- se muestran
-    // aparte, abajo de todo, con el resultado real de Mercado Público
-    // (quién ganó y por cuánto) para no tener que entrar a cada una.
-    const compraAgilCompletadas = asignaciones
-        ? asignaciones.filter((a) => a.tipo === "COMPRA_AGIL" && a.estado === "COMPLETADO")
-        : [];
 
     return (
         <div className="flex-min-w-0">

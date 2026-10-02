@@ -5,12 +5,15 @@ import AsignacionesCompaneroBadge from "../components/AsignacionesCompaneroBadge
 import AsignarBoton from "../components/AsignarBoton.jsx";
 import CompraCard from "../components/CompraCard.jsx";
 import DetalleItem from "../components/DetalleItem.jsx";
+import FiltrosBar from "../components/FiltrosBar.jsx";
 import Modal from "../components/Modal.jsx";
 import Paginador from "../components/Paginador.jsx";
 import PerfilCompradorPanel from "../components/PerfilCompradorPanel.jsx";
+import ProveedoresCotizandoPanel from "../components/ProveedoresCotizandoPanel.jsx";
 import RecomendarBoton from "../components/RecomendarBoton.jsx";
 import { authFetch, getClaims } from "../lib/api.js";
 import { normalizarCodigo, pareceCodigoValido } from "../lib/codigos.js";
+import { FILTROS_VACIOS, queryStringDeFiltros } from "../lib/filtros.js";
 
 const MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -159,6 +162,12 @@ function CompraRapida() {
     const [vista, setVista] = useState("todas");
     const [compras, setCompras] = useState([]);
     const [listLoading, setListLoading] = useState(false);
+
+    // Panel de filtros (orden + region/monto/cierre) -- ver FiltrosBar.jsx.
+    // Separado de "vista" (todas/mi-filtro/2do llamado/busqueda) porque se
+    // combinan: los filtros de acá se aplican SOBRE cualquier vista activa,
+    // no reemplazan el selector de vista.
+    const [filtros, setFiltros] = useState(FILTROS_VACIOS);
 
     // Ultima palabra clave buscada -- se necesita aparte de "codigo" (el
     // input se puede seguir editando) para que el paginador (que reusa
@@ -336,7 +345,7 @@ function CompraRapida() {
     // CompraAgilController. Reusa la MISMA grilla+paginador que "Ver todo"
     // (setCompras/setPaginacion), asi el resultado se ve y se pagina igual
     // que cualquier otra lista.
-    async function buscarPorPalabraClave(texto, paginaSolicitada) {
+    async function buscarPorPalabraClave(texto, paginaSolicitada, filtrosSolicitados = filtros) {
         setLoading(true);
         setListLoading(true);
         setError(null);
@@ -347,7 +356,7 @@ function CompraRapida() {
         setTerminoBusqueda(texto);
 
         try {
-            const res = await authFetch(`/compra/agil/buscar?q=${encodeURIComponent(texto)}&pagina=${paginaSolicitada}&tamano=15`);
+            const res = await authFetch(`/compra/agil/buscar?q=${encodeURIComponent(texto)}&pagina=${paginaSolicitada}&tamano=15${queryStringDeFiltros(filtrosSolicitados)}`);
             if (!res.ok) {
                 throw new Error(`El servidor respondió con estado ${res.status}`);
             }
@@ -436,19 +445,19 @@ function CompraRapida() {
     // llamado": al hacer click cambian la vista Y piden la lista en el
     // mismo gesto (ver mas abajo), y setVista() todavia no se aplico
     // cuando se llama esta funcion (React lo deja para el proximo render).
-    async function obtenerTodasCompras(paginaSolicitada = pagina, vistaSolicitada = vista) {
+    async function obtenerTodasCompras(paginaSolicitada = pagina, vistaSolicitada = vista, filtrosSolicitados = filtros) {
         // "busqueda" (palabra clave) no vive en ENDPOINT_POR_VISTA -- necesita
         // el "q" del último término buscado, así que el paginador (que
         // siempre llama acá) lo redirige a buscarPorPalabraClave en vez de
         // pisarlo con la lista sin filtrar.
         if (vistaSolicitada === "busqueda") {
-            return buscarPorPalabraClave(terminoBusqueda, paginaSolicitada);
+            return buscarPorPalabraClave(terminoBusqueda, paginaSolicitada, filtrosSolicitados);
         }
 
         setListLoading(true);
         setError(null);
         try {
-            const res = await authFetch(`${ENDPOINT_POR_VISTA[vistaSolicitada]}?pagina=${paginaSolicitada}&tamano=15`);
+            const res = await authFetch(`${ENDPOINT_POR_VISTA[vistaSolicitada]}?pagina=${paginaSolicitada}&tamano=15${queryStringDeFiltros(filtrosSolicitados)}`);
             if (!res.ok) {
                 throw new Error(`El servidor respondió con estado ${res.status}`);
             }
@@ -542,89 +551,84 @@ function CompraRapida() {
                 </div>
             )}
 
-            {archivos.length > 0 && (
-                <div className="card-panel mb-4">
-                    <h5>Documentos adjuntos</h5>
-                    <div className="d-flex flex-wrap gap-2">
-                        {archivos.map((f) => (
-                            <button
-                                key={f.id}
-                                type="button"
-                                className="btn btn-outline-secondary btn-sm"
-                                disabled={cargandoArchivo === f.id}
-                                onClick={() => verArchivo(f.id, f.nombreArchivo)}
-                            >
-                                {cargandoArchivo === f.id ? "Cargando..." : f.nombreArchivo}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            <VisorArchivo preview={preview} onClose={() => setPreview(null)} />
-
             {data && (
-                <div className="card-panel w-100 mb-3" style={{ maxWidth: "760px" }}>
-                    <div className="d-flex flex-wrap align-items-center gap-2 mb-3 pb-3 border-bottom">
-                        <RecomendarBoton
-                            codigoExterno={data?.payload?.codigo}
-                            tipo="COMPRA_AGIL"
-                            yaAsignada={misCodigos.has(data?.payload?.codigo)}
-                            onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
-                            onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
-                        />
-                        <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(data?.payload?.codigo)} />
-                        {esAdmin && data?.payload?.codigo && (
-                            <AsignarBoton codigoExterno={data.payload.codigo} tipo="COMPRA_AGIL" />
+                <div className="d-flex flex-wrap gap-3 align-items-start w-100 mb-3" style={{ maxWidth: "1180px" }}>
+                    <div className="card-panel flex-grow-1" style={{ minWidth: 0, flexBasis: "420px" }}>
+                        <div className="d-flex flex-wrap align-items-center gap-2 mb-3 pb-3 border-bottom">
+                            <RecomendarBoton
+                                codigoExterno={data?.payload?.codigo}
+                                tipo="COMPRA_AGIL"
+                                yaAsignada={misCodigos.has(data?.payload?.codigo)}
+                                onAsignado={(codigo) => setMisCodigos((prev) => new Set(prev).add(codigo))}
+                                onQuitado={(codigo) => setMisCodigos((prev) => { const next = new Set(prev); next.delete(codigo); return next; })}
+                            />
+                            <AsignacionesCompaneroBadge usuarios={asignacionesCompaneros.get(data?.payload?.codigo)} />
+                            {esAdmin && data?.payload?.codigo && (
+                                <AsignarBoton codigoExterno={data.payload.codigo} tipo="COMPRA_AGIL" />
+                            )}
+                        </div>
+                        <DetalleItem tipo="COMPRA_AGIL" item={data?.payload} />
+
+                        {archivos.length > 0 && (
+                            <div className="mt-3 pt-3 border-top">
+                                <p className="mb-2 text-muted" style={{ fontSize: "0.8rem" }}>Documentos adjuntos</p>
+                                <div className="d-flex flex-wrap gap-2">
+                                    {archivos.map((f) => (
+                                        <button
+                                            key={f.id}
+                                            type="button"
+                                            className="btn btn-outline-secondary btn-sm"
+                                            disabled={cargandoArchivo === f.id}
+                                            onClick={() => verArchivo(f.id, f.nombreArchivo)}
+                                        >
+                                            {cargandoArchivo === f.id ? "Cargando..." : f.nombreArchivo}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         )}
+
+                        <VisorArchivo preview={preview} onClose={() => setPreview(null)} />
                     </div>
-                    <DetalleItem tipo="COMPRA_AGIL" item={data?.payload} />
+
+                    <div className="d-flex flex-column gap-3" style={{ width: "320px", flexShrink: 0 }}>
+                        <ProveedoresCotizandoPanel
+                            proveedores={data?.payload?.proveedores_cotizando}
+                            moneda={data?.payload?.presupuesto?.moneda}
+                            totalOfertas={data?.payload?.resumen?.total_ofertas_recibidas}
+                        />
+                        <PerfilCompradorPanel rutInstitucion={data?.payload?.institucion?.rut} />
+                    </div>
                 </div>
             )}
 
-            {/* "Ver todo" = /listar (cartera completa, paginada). "Ver mi
-                filtro" = Puerta 2 (/compra/agil, acotado ademas por el
-                perfil de la empresa). Cada boton ya dispara la carga solo
-                -- no hace falta un "Mostrar compras" aparte (antes exigia
-                ese segundo click incluso para la vista por defecto). */}
-            <div className="btn-group mb-3 flex-wrap" role="group">
-                <button
-                    type="button"
-                    className={`btn btn-sm ${vista === "todas" ? "btn-primary" : "btn-outline-secondary"}`}
-                    disabled={listLoading}
-                    onClick={() => {
-                        setVista("todas");
-                        setPagina(1);
-                        obtenerTodasCompras(1, "todas");
-                    }}
-                >
-                    Ver todo
-                </button>
-                <button
-                    type="button"
-                    className={`btn btn-sm ${vista === "filtro" ? "btn-primary" : "btn-outline-secondary"}`}
-                    disabled={listLoading}
-                    onClick={() => {
-                        setVista("filtro");
-                        setPagina(1);
-                        obtenerTodasCompras(1, "filtro");
-                    }}
-                >
-                    Ver mi filtro
-                </button>
-                <button
-                    type="button"
-                    className={`btn btn-sm ${vista === "segundoLlamado" ? "btn-primary" : "btn-outline-secondary"}`}
-                    disabled={listLoading}
-                    onClick={() => {
-                        setVista("segundoLlamado");
-                        setPagina(1);
-                        obtenerTodasCompras(1, "segundoLlamado");
-                    }}
-                >
-                    En 2do llamado
-                </button>
-            </div>
+            {/* "Mostrar todo" = /listar (cartera completa, paginada). "Mis
+                rubros" = Puerta 2 (/compra/agil, acotado ademas por el
+                perfil de la empresa) -- antes decia "Ver mi filtro". Cada
+                vista ya dispara la carga sola -- no hace falta un "Mostrar
+                compras" aparte. El resto del panel (orden/region/monto/
+                cierre) se aplica SOBRE la vista elegida, ver FiltrosBar.jsx. */}
+            <FiltrosBar
+                vistas={[
+                    { valor: "todas", etiqueta: "Mostrar todo" },
+                    { valor: "filtro", etiqueta: "Mis rubros" },
+                    { valor: "segundoLlamado", etiqueta: "En 2do llamado" },
+                ]}
+                vistaActual={vista}
+                onCambiarVista={(nuevaVista) => {
+                    setVista(nuevaVista);
+                    setPagina(1);
+                    obtenerTodasCompras(1, nuevaVista);
+                }}
+                filtros={filtros}
+                onCambiarFiltros={setFiltros}
+                onAplicar={(nuevosFiltros) => {
+                    setFiltros(nuevosFiltros);
+                    setPagina(1);
+                    obtenerTodasCompras(1, vista, nuevosFiltros);
+                }}
+                tipoRegion="codigo"
+            />
 
             {listLoading && compras.length === 0 && <p className="text-muted">Cargando compras...</p>}
 
@@ -690,7 +694,17 @@ function CompraRapida() {
                             </div>
                         </div>
 
-                        <div style={{ width: "320px", flexShrink: 0 }}>
+                        <div className="d-flex flex-column gap-3" style={{ width: "320px", flexShrink: 0 }}>
+                            {/* Quien ya cotizo esta compra hasta el momento --
+                                no hace falta esperar a que se resuelva ni que
+                                este asignada a alguien, a diferencia del panel
+                                analogo en Home (ver CompraAgilResueltas.jsx,
+                                que solo lo muestra con ganador ya definido). */}
+                            <ProveedoresCotizandoPanel
+                                proveedores={modalDetalle.item?.proveedores_cotizando}
+                                moneda={modalDetalle.item?.presupuesto?.moneda}
+                                totalOfertas={modalDetalle.item?.resumen?.total_ofertas_recibidas}
+                            />
                             <PerfilCompradorPanel rutInstitucion={modalDetalle.item?.institucion?.rut} />
                         </div>
                     </div>

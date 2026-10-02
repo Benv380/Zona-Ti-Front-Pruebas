@@ -776,6 +776,13 @@ function SeccionAsignaciones({ empresaId }) {
     const [nuevoTipo, setNuevoTipo] = useState("LICITACION");
     const [asignando, setAsignando] = useState(false);
 
+    // Filtro por usuario de la tabla de arriba -- distinto de "usuarioId"
+    // (ese es a quien se le va a ASIGNAR algo nuevo, en el form de abajo).
+    // Client-side nomas: a diferencia del panel GLOBAL de Administracion.jsx,
+    // esta tabla ya viene acotada a "activas" de UNA sola empresa (ver
+    // asignacionesActivas mas abajo), nunca crece sin limite.
+    const [filtroUsuario, setFiltroUsuario] = useState("");
+
     async function cargarTodo() {
         setLoading(true);
         setError(null);
@@ -929,6 +936,7 @@ function SeccionAsignaciones({ empresaId }) {
     }
     const asignacionesActivas = asignaciones.filter((a) =>
         ASIGNACION_ACTIVA.includes(a.estado) && !estaCerradaPorTiempo(fechaCierrePorId[a.id])
+        && (!filtroUsuario || String(a.usuarioId) === filtroUsuario)
     );
 
     return (
@@ -954,8 +962,19 @@ function SeccionAsignaciones({ empresaId }) {
             )}
 
             {!loading && (
-                <TablaAsignaciones asignaciones={asignacionesActivas} onCambiarEstado={cambiarEstado}
-                    onEliminar={quitar} onAprobarRevision={aprobarRevision} />
+                <>
+                    <div className="mb-2" style={{ maxWidth: "220px" }}>
+                        <select className="form-control form-control-sm" value={filtroUsuario}
+                            onChange={(e) => setFiltroUsuario(e.target.value)}>
+                            <option value="">Todos los usuarios</option>
+                            {usuarios.map((u) => (
+                                <option key={u.id} value={u.id}>{u.username}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <TablaAsignaciones asignaciones={asignacionesActivas} onCambiarEstado={cambiarEstado}
+                        onEliminar={quitar} onAprobarRevision={aprobarRevision} />
+                </>
             )}
 
             <form className="d-flex gap-2 pt-3 border-top" onSubmit={asignar}>

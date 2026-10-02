@@ -13,8 +13,34 @@ function formatearMonto(monto, moneda) {
 // DetalleItem.jsx mezclado con el resto del detalle; se separo a pedido
 // explicito (2026-09-25): el resultado (quien cotizo, a que precio) tenia
 // que salir en su propia tarjeta, no enterrado dentro de la otra.
-export default function ProveedoresCotizandoPanel({ proveedores, moneda }) {
-    if (!proveedores || proveedores.length === 0) return null;
+//
+// "totalOfertas" (2026-09-30): el detalle completo (proveedores, uno por
+// uno con monto/productos) solo llega si se sincronizo el detalle de esa
+// compra puntual -- puede fallar (API externa lenta/caida) o, mientras la
+// compra sigue ABIERTA, Mercado Publico puede simplemente no exponerlo
+// todavia (ofertas selladas hasta el cierre). El CONTEO si viene siempre,
+// incluso en el listado resumido (item.resumen.total_ofertas_recibidas,
+// ver CompraAgilDto.Item/Detalle) -- se usa como respaldo para no dejar la
+// tarjeta vacia cuando lo unico que falta es el desglose.
+export default function ProveedoresCotizandoPanel({ proveedores, moneda, totalOfertas }) {
+    const hayDetalle = proveedores && proveedores.length > 0;
+
+    if (!hayDetalle) {
+        if (!totalOfertas) return null;
+        return (
+            <div className="card-panel">
+                <h6 className="mb-2">
+                    <i className="bi bi-people-fill me-1"></i>
+                    Proveedores que cotizaron
+                </h6>
+                <p className="text-muted mb-0" style={{ fontSize: "0.85rem" }}>
+                    {totalOfertas} oferta{totalOfertas === 1 ? "" : "s"} recibida{totalOfertas === 1 ? "" : "s"} — todavía
+                    sin el detalle (quién cotizó y por cuánto). Puede tardar en sincronizarse, o Mercado Público
+                    recién lo publica cuando la compra cierra.
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="card-panel">

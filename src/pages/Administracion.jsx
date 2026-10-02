@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authFetch } from "../lib/api.js";
-import PendientesRevision from "../components/PendientesRevision.jsx";
-import SectionHeader from "../components/SectionHeader.jsx";
-import TablaAsignaciones, { ESTADOS, TIPOS_ASIGNACION } from "../components/TablaAsignaciones.jsx";
+import Modal from "../components/Modal.jsx";
 import EmpresaForm, { EMPRESA_VACIA, TAMANOS_EMPRESA, archivoABase64 } from "../components/EmpresaForm.jsx";
 
 // Panel exclusivo de rol GLOBAL (ADMIN) -- ver Sidebar.jsx, solo aparece
@@ -24,9 +22,221 @@ export default function Administracion() {
             <h1>Administración</h1>
             <p>Gestión general de empresas, usuarios y roles de todo el sistema.</p>
 
+            <SeccionMonitoreo />
             <SeccionEmpresas />
             <SeccionUsuarios />
-            <SeccionAsignaciones />
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------
+// Monitoreo: salud de los scheduler que sincronizan con APIs externas
+// (Mercado Publico, el scraper Python) -- ver SyncController.salud() en
+// compra-service. Antes esta info solo vivia en los logs de Docker
+// (docker-compose logs backend | grep ...), sin forma de verla desde la
+// app; ahora GLOBAL puede vigilarla desde acá. Auto-refresh cada 15s
+// mientras la pagina este abierta -- se corta solo al desmontar.
+// ---------------------------------------------------------------------
+const ETIQUETA_JOB = {
+    "compra-agil-detalle": "Compra Ágil — detalle",
+    "compra-agil-adjuntos": "Compra Ágil — adjuntos",
+    "licitacion-adjuntos": "Licitación — adjuntos",
+    "reclamos-token": "Token de reclamos (comprador)",
+    "limpieza-cache": "Limpieza de caché vieja",
+};
+
+const INTERVALO_REFRESCO_MS = 15000;
+
+// "hace X" en vez de la fecha completa -- lo que importa acá es qué tan
+// reciente es, no el timestamp exacto. Las fechas vienen sin zona horaria
+// explicita del backend (LocalDateTime tal cual, ver FechaParser) pero
+// SIEMPRE representan la hora del SERVIDOR (no UTC como en
+// CompraAgilDto/LicitacionDto) -- por eso acá se parsean como locales,
+// sin el fix de "Z" que sí aplica a esos otros DTOs.
+function haceCuanto(fechaSinZona) {
+    if (!fechaSinZona) return "nunca";
+    const entonces = new Date(fechaSinZona);
+    if (Number.isNaN(entonces.getTime())) return "-";
+    const segundos = Math.max(0, Math.round((Date.now() - entonces.getTime()) / 1000));
+    if (segundos < 60) return `hace ${segundos}s`;
+    const minutos = Math.round(segundos / 60);
+    if (minutos < 60) return `hace ${minutos} min`;
+    const horas = Math.round(minutos / 60);
+    if (horas < 24) return `hace ${horas} h`;
+    return `hace ${Math.round(horas / 24)} d`;
+}
+
+// Centralizado acá (en vez de repetir el if/else en cada lugar que
+// necesita el color/texto) -- lo usan tanto la tarjeta chica como el
+// modal ampliado.
+function estadoDeJob(job) {
+    const sinDatosTodavia = !job.ultimoExitoEn && !job.ultimoErrorEn;
+    // Rojo: el ciclo actual tuvo SOLO fallos (y al menos uno). Amarillo:
+    // hubo fallos pero tambien algun exito en el mismo ciclo (parcial).
+    // Verde: todo bien o sin datos todavia (no penalizar un scheduler que
+    // recien arranca).
+    if (!sinDatosTodavia && job.erroresCicloActual > 0) {
+        return job.exitosCicloActual === 0
+            ? { color: "var(--danger)", texto: "Fallando" }
+            : { color: "var(--warning)", texto: "Parcial" };
+    }
+    if (sinDatosTodavia) {
+        return { color: "var(--text-muted)", texto: "Sin datos aún" };
+    }
+    return { color: "var(--success)", texto: "OK" };
+}
+
+// "ampliado" (dentro del modal, al hacer click) muestra el error completo
+// sin truncar -- en la tarjeta chica de la grilla se corta con "..." y
+// solo se ve entero al pasar el mouse (title), que en mobile ni sirve.
+function EstadoJobCard({ job, ampliado = false, onClick }) {
+    const etiqueta = ETIQUETA_JOB[job.job] || job.job;
+    const { color, texto } = estadoDeJob(job);
+
+    return (
+        <div
+            className={`card-panel ${onClick ? "card-clickeable" : ""}`}
+            style={{ padding: "14px 16px" }}
+            onClick={onClick}
+        >
+            <div className="d-flex align-items-center justify-content-between gap-2 mb-2">
+                <span className="fw-semibold" style={{ fontSize: ampliado ? "1rem" : "0.85rem" }}>{etiqueta}</span>
+                <span className="badge" style={{ background: color, color: "#fff" }}>{texto}</span>
+            </div>
+            <div className="text-muted" style={{ fontSize: ampliado ? "0.85rem" : "0.78rem" }}>
+                <div>Último éxito: {haceCuanto(job.ultimoExitoEn)}</div>
+                <div>Último error: {haceCuanto(job.ultimoErrorEn)}</div>
+                <div>Ciclo actual: {job.exitosCicloActual} OK / {job.erroresCicloActual} fallos</div>
+                {job.ultimoError && (
+                    <div
+                        className={`mt-2 pt-2 border-top ${ampliado ? "" : "text-truncate"}`}
+                        title={ampliado ? undefined : job.ultimoError}
+                        style={{ color: "var(--danger)", whiteSpace: ampliado ? "pre-wrap" : undefined }}
+                    >
+                        {job.ultimoError}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function SeccionMonitoreo() {
+    const [salud, setSalud] = useState(null);
+    const [error, setError] = useState(null);
+    const [cargando, setCargando] = useState(true);
+    // Se guarda solo la KEY (no el objeto job entero) -- así, mientras el
+    // modal está abierto y el auto-refresh de cada 15s trae datos nuevos,
+    // el detalle ampliado se sigue actualizando solo en vez de quedar
+    // congelado con la foto del momento en que se hizo click.
+    const [jobSeleccionadoKey, setJobSeleccionadoKey] = useState(null);
+    const jobSeleccionado = salud?.jobs?.find((j) => j.job === jobSeleccionadoKey) || null;
+
+    // No pide datos nuevos -- solo fuerza un re-render cada 1s para que
+    // haceCuanto() recalcule contra Date.now() y el "hace Xs" se vea
+    // contando en vivo, en vez de quedar pegado hasta el proximo fetch real
+    // (cada INTERVALO_REFRESCO_MS). El valor en si no se usa para nada.
+    const [, forzarTick] = useState(0);
+    useEffect(() => {
+        const id = setInterval(() => forzarTick((t) => t + 1), 1000);
+        return () => clearInterval(id);
+    }, []);
+
+    // Acá (a diferencia de Api-Prueba, un solo servicio) hay que juntar 2
+    // endpoints -- compra-service (con el chequeo en vivo de Mercado
+    // Publico) y licitacion-service (solo jobs, sin chequeo en vivo propio,
+    // ver SyncController.salud() ahí) -- cada uno vive en un servicio
+    // separado detrás del gateway. Si uno de los 2 falla, igual se
+    // muestra lo que sí respondió (no todo o nada).
+    async function cargar() {
+        try {
+            const [resCompra, resLicitacion] = await Promise.all([
+                authFetch(`/compra/sync/salud`),
+                authFetch(`/compra/sync/salud-licitacion`),
+            ]);
+            if (!resCompra.ok && !resLicitacion.ok) {
+                throw new Error(`El servidor respondió con estado ${resCompra.status}`);
+            }
+            const saludCompra = resCompra.ok ? await resCompra.json() : { jobs: [], apiMercadoPublico: null };
+            const jobsLicitacion = resLicitacion.ok ? await resLicitacion.json() : [];
+            setSalud({
+                jobs: [...saludCompra.jobs, ...jobsLicitacion],
+                apiMercadoPublico: saludCompra.apiMercadoPublico,
+            });
+            setError(null);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setCargando(false);
+        }
+    }
+
+    useEffect(() => {
+        cargar();
+        const id = setInterval(cargar, INTERVALO_REFRESCO_MS);
+        return () => clearInterval(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const api = salud?.apiMercadoPublico;
+
+    return (
+        <div className="card-panel mb-4">
+            <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <h5 className="mb-0 d-flex align-items-center gap-2">
+                    <i className="bi bi-activity" style={{ color: "var(--accent)" }}></i>
+                    Monitoreo
+                </h5>
+                <span className="text-muted" style={{ fontSize: "0.75rem" }}>
+                    Se actualiza solo cada {INTERVALO_REFRESCO_MS / 1000}s
+                </span>
+            </div>
+
+            {cargando && <p className="text-muted mb-0">Cargando...</p>}
+            {error && <div className="alert alert-danger mb-0">{error}</div>}
+
+            {api && (
+                <div className="d-flex align-items-center gap-2 mb-3 pb-3 border-bottom">
+                    <span
+                        className="d-inline-block rounded-circle flex-shrink-0"
+                        style={{ width: 12, height: 12, background: api.disponible ? "var(--success)" : "var(--danger)" }}
+                    ></span>
+                    <span style={{ fontSize: "0.85rem" }}>
+                        API Mercado Público (Compra Ágil):{" "}
+                        <strong>{api.disponible ? "Respondiendo" : "No responde"}</strong>
+                        {api.disponible && ` — ${api.latenciaMs}ms`}
+                    </span>
+                    {!api.disponible && api.error && (
+                        <span className="text-muted text-truncate" style={{ fontSize: "0.78rem" }} title={api.error}>
+                            ({api.error})
+                        </span>
+                    )}
+                </div>
+            )}
+
+            {salud && salud.jobs.length === 0 && (
+                <p className="text-muted mb-0" style={{ fontSize: "0.85rem" }}>
+                    Todavía no corrió ningún ciclo de sincronización desde que arrancó el backend.
+                </p>
+            )}
+
+            {salud && salud.jobs.length > 0 && (
+                <div className="row g-3">
+                    {salud.jobs.map((job) => (
+                        <div className="col-md-6" key={job.job}>
+                            <EstadoJobCard job={job} onClick={() => setJobSeleccionadoKey(job.job)} />
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <Modal
+                show={!!jobSeleccionadoKey}
+                onClose={() => setJobSeleccionadoKey(null)}
+                titulo={jobSeleccionadoKey ? (ETIQUETA_JOB[jobSeleccionadoKey] || jobSeleccionadoKey) : ""}
+            >
+                {jobSeleccionado && <EstadoJobCard job={jobSeleccionado} ampliado />}
+            </Modal>
         </div>
     );
 }
@@ -501,270 +711,6 @@ function SeccionUsuarios() {
                     </div>
                 </form>
             )}
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------------
-// Asignaciones: panel GLOBAL de TODA la plataforma -- a diferencia de
-// MiEmpresa.jsx (acotado a una sola empresa), acá se ven todas las
-// empresas juntas (GET /auth/asignaciones) y se filtra client-side por
-// empresa/usuario/tipo/estado. El filtro de empresa acota en cascada las
-// opciones del filtro de usuario, para poder ir de "todas las empresas"
-// a "una empresa puntual" a "un usuario puntual" sin perder de vista el
-// resto. Reusa TablaAsignaciones (mismo componente que MiEmpresa.jsx) con
-// mostrarEmpresa=true, ya que acá sí hace falta distinguir de qué empresa
-// es cada fila.
-// ---------------------------------------------------------------------
-function SeccionAsignaciones() {
-    const [usuarios, setUsuarios] = useState([]);
-    const [empresas, setEmpresas] = useState([]);
-    const [asignaciones, setAsignaciones] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-
-    const [filtroEmpresa, setFiltroEmpresa] = useState("");
-    const [filtroUsuario, setFiltroUsuario] = useState("");
-    const [filtroTipo, setFiltroTipo] = useState("");
-    const [filtroEstado, setFiltroEstado] = useState("");
-
-    const [usuarioAsignar, setUsuarioAsignar] = useState("");
-    const [nuevoCodigo, setNuevoCodigo] = useState("");
-    const [nuevoTipo, setNuevoTipo] = useState("LICITACION");
-    const [asignando, setAsignando] = useState(false);
-
-    async function cargarTodo() {
-        setLoading(true);
-        setError(null);
-        try {
-            const [resAsig, resUsuarios, resEmpresas] = await Promise.all([
-                authFetch(`/auth/asignaciones`),
-                authFetch(`/auth/usuarios`),
-                authFetch(`/auth/empresas`),
-            ]);
-            if (!resAsig.ok) throw new Error(`El servidor respondió con estado ${resAsig.status}`);
-            setAsignaciones(await resAsig.json());
-            setUsuarios(resUsuarios.ok ? await resUsuarios.json() : []);
-            setEmpresas(resEmpresas.ok ? await resEmpresas.json() : []);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    useEffect(() => { cargarTodo(); }, []);
-
-    // Cambiar de empresa resetea el filtro de usuario -- si no, podría
-    // quedar seleccionado un usuario que no pertenece a la empresa nueva
-    // y el filtro de usuario no haría nada visible.
-    function cambiarFiltroEmpresa(id) {
-        setFiltroEmpresa(id);
-        setFiltroUsuario("");
-    }
-
-    // Usuarios que aparecen en el selector de filtro: todos, o solo los
-    // de la empresa filtrada -- así el segundo select siempre queda
-    // acotado a lo que tiene sentido elegir.
-    const usuariosFiltroEmpresa = useMemo(() => {
-        if (!filtroEmpresa) return usuarios;
-        return usuarios.filter((u) => String(u.empresaId) === filtroEmpresa);
-    }, [usuarios, filtroEmpresa]);
-
-    const asignacionesFiltradas = useMemo(() => {
-        return asignaciones.filter((a) => {
-            if (filtroEmpresa && String(a.empresaId) !== filtroEmpresa) return false;
-            if (filtroUsuario && String(a.usuarioId) !== filtroUsuario) return false;
-            if (filtroTipo && a.tipo !== filtroTipo) return false;
-            if (filtroEstado && a.estado !== filtroEstado) return false;
-            return true;
-        });
-    }, [asignaciones, filtroEmpresa, filtroUsuario, filtroTipo, filtroEstado]);
-
-    function nombreEmpresa(empresaId) {
-        return empresas.find((e) => e.id === empresaId)?.nombre;
-    }
-
-    async function asignar(e) {
-        e.preventDefault();
-        if (!usuarioAsignar || !nuevoCodigo.trim()) return;
-        setAsignando(true);
-        setError(null);
-        try {
-            const res = await authFetch(`/auth/usuarios/${usuarioAsignar}/asignaciones`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ codigoExterno: nuevoCodigo.trim(), tipo: nuevoTipo }),
-            });
-            if (!res.ok) {
-                const texto = await res.text().catch(() => "");
-                throw new Error(texto || `El servidor respondió con estado ${res.status}`);
-            }
-            setNuevoCodigo("");
-            await cargarTodo();
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setAsignando(false);
-        }
-    }
-
-    // Al pasar a DESCARTADO se pide el motivo -- el backend lo exige (ver
-    // AsignacionService.actualizarEstado).
-    async function cambiarEstado(asignacion, nuevoEstado) {
-        let motivoDescarte;
-        if (nuevoEstado === "DESCARTADO") {
-            motivoDescarte = window.prompt("¿Por qué se descarta? (obligatorio)");
-            if (!motivoDescarte || !motivoDescarte.trim()) return;
-        }
-        try {
-            const res = await authFetch(`/auth/asignaciones/${asignacion.id}/estado`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ estado: nuevoEstado, motivoDescarte }),
-            });
-            if (!res.ok) {
-                const texto = await res.text().catch(() => "");
-                throw new Error(texto || `El servidor respondió con estado ${res.status}`);
-            }
-            await cargarTodo();
-        } catch (err) {
-            setError(err.message);
-        }
-    }
-
-    async function quitar(asignacion) {
-        try {
-            const res = await authFetch(`/auth/asignaciones/${asignacion.id}`, { method: "DELETE" });
-            if (!res.ok && res.status !== 204) {
-                const texto = await res.text().catch(() => "");
-                throw new Error(texto || `El servidor respondió con estado ${res.status}`);
-            }
-            await cargarTodo();
-        } catch (err) {
-            setError(err.message);
-        }
-    }
-
-    // Mismo criterio que MiEmpresa.jsx (ver esa) -- apaga
-    // Asignacion.pendienteRevision, el estado ya estaba en COMPLETADO.
-    async function aprobarRevision(asignacion) {
-        try {
-            const res = await authFetch(`/auth/asignaciones/${asignacion.id}/revision`, { method: "PATCH" });
-            if (!res.ok) {
-                const texto = await res.text().catch(() => "");
-                throw new Error(texto || `El servidor respondió con estado ${res.status}`);
-            }
-            await cargarTodo();
-        } catch (err) {
-            setError(err.message);
-        }
-    }
-
-    // Sin filtrar (ni por los selects de arriba ni por "verTodas") -- antes
-    // solo aparecia mezclada adentro de la tabla grande de abajo (con
-    // mostrarEmpresa+badge inline, facil de perder de vista entre el resto
-    // de filas); ahora tiene su propia lista arriba de todo, igual que en
-    // MiEmpresa.jsx.
-    const pendientesRevision = asignaciones.filter((a) => a.pendienteRevision);
-
-    return (
-        <div className="card-panel mb-4">
-            <SectionHeader icono="bi-link-45deg" titulo="Asignaciones" subtitulo="De todas las empresas" />
-            <p className="text-muted mb-3" style={{ fontSize: "0.85rem" }}>
-                Todo lo asignado o recomendado en cualquier empresa del sistema. Filtre por empresa, usuario, tipo o estado
-                para acotar la vista.
-            </p>
-
-            <div className="row g-2 mb-3">
-                <div className="col-md-3">
-                    <select className="form-control form-control-sm" value={filtroEmpresa}
-                        onChange={(e) => cambiarFiltroEmpresa(e.target.value)}>
-                        <option value="">Todas las empresas</option>
-                        {empresas.map((emp) => (
-                            <option key={emp.id} value={emp.id}>{emp.nombre}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="col-md-3">
-                    <select className="form-control form-control-sm" value={filtroUsuario}
-                        onChange={(e) => setFiltroUsuario(e.target.value)}>
-                        <option value="">Todos los usuarios</option>
-                        {usuariosFiltroEmpresa.map((u) => (
-                            <option key={u.id} value={u.id}>{u.username}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="col-md-3">
-                    <select className="form-control form-control-sm" value={filtroTipo}
-                        onChange={(e) => setFiltroTipo(e.target.value)}>
-                        <option value="">Todos los tipos</option>
-                        {TIPOS_ASIGNACION.map((t) => (
-                            <option key={t.valor} value={t.valor}>{t.etiqueta}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="col-md-3">
-                    <select className="form-control form-control-sm" value={filtroEstado}
-                        onChange={(e) => setFiltroEstado(e.target.value)}>
-                        <option value="">Todos los estados</option>
-                        {ESTADOS.map((es) => (
-                            <option key={es.valor} value={es.valor}>{es.etiqueta}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-
-            {loading && <p className="text-muted">Cargando...</p>}
-            {error && <div className="alert alert-danger">{error}</div>}
-
-            {!loading && pendientesRevision.length > 0 && (
-                <div className="mb-4">
-                    <p className="mb-2 fw-semibold" style={{ fontSize: "0.85rem" }}>
-                        <i className="bi bi-eye-fill me-1" />Pendientes de revisión
-                    </p>
-                    <PendientesRevision pendientes={pendientesRevision} mostrarEmpresa
-                        onAprobar={aprobarRevision} onDevolver={(a) => cambiarEstado(a, "DESARROLLO")} />
-                </div>
-            )}
-
-            {!loading && (
-                <>
-                    <p className="text-muted mb-2" style={{ fontSize: "0.8rem" }}>
-                        {asignacionesFiltradas.length} de {asignaciones.length} en total
-                    </p>
-                    <TablaAsignaciones
-                        asignaciones={asignacionesFiltradas}
-                        mostrarEmpresa
-                        onCambiarEstado={cambiarEstado}
-                        onEliminar={quitar}
-                        onAprobarRevision={aprobarRevision}
-                    />
-                </>
-            )}
-
-            <form className="d-flex flex-wrap gap-2 pt-3 border-top" onSubmit={asignar}>
-                <select className="form-control" style={{ maxWidth: "220px" }} value={usuarioAsignar} required
-                    onChange={(e) => setUsuarioAsignar(e.target.value)}>
-                    <option value="">Asignar a...</option>
-                    {usuarios.map((u) => (
-                        <option key={u.id} value={u.id}>
-                            {u.username}{u.empresaId ? ` — ${nombreEmpresa(u.empresaId) || "empresa #" + u.empresaId}` : ""}
-                        </option>
-                    ))}
-                </select>
-                <select className="form-control" style={{ maxWidth: "180px" }} value={nuevoTipo}
-                    onChange={(e) => setNuevoTipo(e.target.value)}>
-                    {TIPOS_ASIGNACION.map((t) => (
-                        <option key={t.valor} value={t.valor}>{t.etiqueta}</option>
-                    ))}
-                </select>
-                <input className="form-control" placeholder="Código externo (ej: 1234-5-LE26)"
-                    value={nuevoCodigo} onChange={(e) => setNuevoCodigo(e.target.value)} />
-                <button type="submit" className="btn btn-primary" disabled={asignando}>
-                    {asignando ? "Asignando..." : "Asignar"}
-                </button>
-            </form>
         </div>
     );
 }

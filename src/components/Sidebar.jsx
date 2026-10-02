@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { getClaims, logout } from "../lib/api.js";
+import { aplicarTema, obtenerTemaInicial } from "../lib/theme.js";
 
 const links = [
     { to: "/", icon: "bi-house-door-fill", label: "Home" },
@@ -32,9 +33,21 @@ export default function Sidebar() {
     // igual), ahí directo se abre/cierra el panel completo.
     const [collapsed, setCollapsed] = useState(false);
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [tema, setTema] = useState(obtenerTemaInicial);
     const navigate = useNavigate();
     const claims = getClaims();
     const badge = claims?.alcance ? BADGE_POR_ALCANCE[claims.alcance] : null;
+
+    // Aplica el tema al <html> ni bien monta (y cada vez que cambia) --
+    // ver src/lib/theme.js. Se hace acá y no en main.jsx porque este es el
+    // unico lugar que lo cambia (el boton de "Modo claro/oscuro" de abajo).
+    useEffect(() => {
+        aplicarTema(tema);
+    }, [tema]);
+
+    function alternarTema() {
+        setTema((t) => (t === "dark" ? "light" : "dark"));
+    }
 
     const linksVisibles = links.filter((link) => {
         if (link.soloEmpresa) return claims?.alcance === "EMPRESA";
@@ -61,12 +74,12 @@ export default function Sidebar() {
             ></div>
 
             <div
-                className={`sidebar d-flex flex-column p-3 text-white ${collapsed ? "is-collapsed" : ""} ${mobileOpen ? "is-mobile-open" : ""}`}
+                className={`sidebar d-flex flex-column p-3 ${collapsed ? "is-collapsed" : ""} ${mobileOpen ? "is-mobile-open" : ""}`}
                 style={{ background: "var(--bg-elevated)", borderRight: "1px solid var(--border)" }}
             >
                 <div className="d-flex align-items-center mb-3">
                     {!collapsed && (
-                        <a href="/" className="d-flex align-items-center flex-grow-1 text-white text-decoration-none text-truncate">
+                        <a href="/" className="d-flex align-items-center flex-grow-1 text-decoration-none text-truncate" style={{ color: "var(--text-h)" }}>
                             <span
                                 className="d-flex align-items-center justify-content-center me-2 flex-shrink-0"
                                 style={{ width: 32, height: 32, borderRadius: 8, background: "var(--accent-bg)", color: "var(--accent)" }}
@@ -80,8 +93,8 @@ export default function Sidebar() {
                         oculta en mobile vía CSS (.sidebar-toggle-desktop). */}
                     <button
                         type="button"
-                        className="sidebar-toggle-desktop btn btn-sm text-white ms-auto"
-                        style={{ background: "transparent", border: "1px solid var(--border)" }}
+                        className="sidebar-toggle-desktop btn btn-sm ms-auto"
+                        style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text)" }}
                         onClick={() => setCollapsed((c) => !c)}
                         title={collapsed ? "Expandir menú" : "Retraer menú"}
                     >
@@ -91,8 +104,8 @@ export default function Sidebar() {
                         en escritorio vía CSS (.sidebar-toggle-mobile). */}
                     <button
                         type="button"
-                        className="sidebar-toggle-mobile btn btn-sm text-white ms-auto"
-                        style={{ background: "transparent", border: "1px solid var(--border)" }}
+                        className="sidebar-toggle-mobile btn btn-sm ms-auto"
+                        style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text)" }}
                         onClick={() => setMobileOpen(false)}
                         title="Cerrar menú"
                     >
@@ -108,7 +121,7 @@ export default function Sidebar() {
                                 title={collapsed ? link.label : undefined}
                                 onClick={() => setMobileOpen(false)}
                                 className={({ isActive }) =>
-                                    `nav-link d-flex align-items-center text-truncate ${isActive ? "active" : "text-white"}`
+                                    `nav-link d-flex align-items-center text-truncate ${isActive ? "active" : ""}`
                                 }
                             >
                                 <i className={`bi ${link.icon} ${collapsed ? "" : "me-2"}`}></i>
@@ -121,7 +134,8 @@ export default function Sidebar() {
                 <div className="dropdown">
                     <a
                         href="#"
-                        className="d-flex align-items-center text-white text-decoration-none dropdown-toggle"
+                        className="d-flex align-items-center text-decoration-none dropdown-toggle"
+                        style={{ color: "var(--text)" }}
                         id="dropdownUser1"
                         data-bs-toggle="dropdown"
                         aria-expanded="false"
@@ -139,7 +153,13 @@ export default function Sidebar() {
                             </span>
                         )}
                     </a>
-                    <ul className="dropdown-menu dropdown-menu-dark text-small shadow" aria-labelledby="dropdownUser1">
+                    <ul className="dropdown-menu text-small shadow" aria-labelledby="dropdownUser1">
+                        <li>
+                            <button type="button" className="dropdown-item" onClick={alternarTema}>
+                                <i className={`bi ${tema === "dark" ? "bi-sun" : "bi-moon-stars"} me-2`}></i>
+                                {tema === "dark" ? "Modo claro" : "Modo oscuro"}
+                            </button>
+                        </li>
                         <li>
                             <button type="button" className="dropdown-item" onClick={cerrarSesion}>
                                 <i className="bi bi-box-arrow-right me-2"></i>
@@ -156,10 +176,10 @@ export default function Sidebar() {
                 oculto (translateX) hasta que se abre. */}
             <button
                 type="button"
-                className="sidebar-toggle-mobile btn btn-sm text-white"
+                className="sidebar-toggle-mobile btn btn-sm"
                 style={{
                     position: "fixed", top: 12, left: 12, zIndex: 1030,
-                    background: "var(--bg-elevated)", border: "1px solid var(--border)",
+                    background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text)",
                 }}
                 onClick={() => setMobileOpen(true)}
                 title="Abrir menú"
