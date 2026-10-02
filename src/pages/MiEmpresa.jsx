@@ -407,7 +407,7 @@ function SeccionFiltroBusqueda({ empresaId }) {
                                         <td>{p.nombre}</td>
                                         <td className="d-none d-md-table-cell">{p.rubro || "-"}</td>
                                         <td className="d-none d-md-table-cell">{p.palabrasClave || "-"}</td>
-                                        <td>{p.regionNombre || "-"}</td>
+                                        <td>{p.regionNombre || "Todo el país"}</td>
                                         <td className="text-end">
                                             <button type="button" className="btn btn-sm btn-outline-secondary me-2" onClick={() => abrirEdicion(p)}>
                                                 Editar
@@ -451,7 +451,7 @@ function SeccionFiltroBusqueda({ empresaId }) {
                                 Publico, ahora se elige por nombre y el codigo
                                 se completa solo (ver REGIONES en
                                 lib/regionesComunas.js). */}
-                            <select className="form-control" value={form.regionCodigo} required
+                            <select className="form-control" value={form.regionCodigo}
                                 onChange={(e) => {
                                     const region = REGIONES.find((r) => String(r.codigo) === e.target.value);
                                     setForm((f) => ({
@@ -460,7 +460,7 @@ function SeccionFiltroBusqueda({ empresaId }) {
                                         regionNombre: region?.nombre || "",
                                     }));
                                 }}>
-                                <option value="">Seleccione...</option>
+                                <option value="">Todo el país (sin restricción)</option>
                                 {REGIONES.map((r) => (
                                     <option key={r.codigo} value={r.codigo}>{r.nombre}</option>
                                 ))}
