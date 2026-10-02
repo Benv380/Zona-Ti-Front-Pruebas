@@ -11,6 +11,7 @@ export const FILTROS_VACIOS = {
     montoMax: "",
     cierreDesde: "",
     cierreHasta: "",
+    palabraClave: "",
 };
 
 // Arma el query string a partir del estado de filtros -- solo manda lo que
@@ -25,6 +26,7 @@ export function queryStringDeFiltros(filtros) {
     if (filtros.montoMax) params.set("montoMax", filtros.montoMax);
     if (filtros.cierreDesde) params.set("cierreDesde", filtros.cierreDesde);
     if (filtros.cierreHasta) params.set("cierreHasta", filtros.cierreHasta);
+    if (filtros.palabraClave) params.set("palabraClave", filtros.palabraClave);
     const qs = params.toString();
     return qs ? `&${qs}` : "";
 }
@@ -37,6 +39,7 @@ export function hayFiltrosActivos(filtros) {
         !!filtros.montoMin ||
         !!filtros.montoMax ||
         !!filtros.cierreDesde ||
-        !!filtros.cierreHasta
+        !!filtros.cierreHasta ||
+        !!filtros.palabraClave
     );
 }

@@ -159,7 +159,12 @@ function CompraRapida() {
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(false);
 
-    const [vista, setVista] = useState("todas");
+    // Pedido explicito 2026-10-02 (paridad con Api-Prueba): lo primero que
+    // ve el usuario es "Mis rubros" (acotado al perfil de su empresa), no
+    // la cartera completa -- "Ver todo" queda para cuando se quiere mirar
+    // fuera del rubro propio (ahora con el campo de palabra clave del
+    // panel de filtros).
+    const [vista, setVista] = useState("filtro");
     const [compras, setCompras] = useState([]);
     const [listLoading, setListLoading] = useState(false);
 
@@ -249,7 +254,7 @@ function CompraRapida() {
 
     // Carga la lista sola al entrar a la pagina -- antes habia que apretar
     // "Mostrar compras" a mano incluso para ver la vista por defecto
-    // ("todas"). Solo al montar (deps vacias): cambiar de vista despues ya
+    // ("filtro" / "Mis rubros"). Solo al montar (deps vacias): cambiar de vista despues ya
     // dispara su propia carga desde el onClick de cada boton (ver mas
     // abajo), no hace falta que este effect reaccione a eso tambien.
     useEffect(() => {
@@ -628,6 +633,7 @@ function CompraRapida() {
                     obtenerTodasCompras(1, vista, nuevosFiltros);
                 }}
                 tipoRegion="codigo"
+                mostrarPalabraClave
             />
 
             {listLoading && compras.length === 0 && <p className="text-muted">Cargando compras...</p>}

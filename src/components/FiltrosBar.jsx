@@ -19,7 +19,7 @@ function nombrePelado(nombreRegion) {
 // "onCambiarFiltros" actualiza el borrador en vivo (liga los inputs);
 // "onAplicar" es quien realmente dispara el refetch -- separados para no
 // pegarle al backend en cada tecla escrita en monto/fecha.
-export default function FiltrosBar({ vistas, vistaActual, onCambiarVista, filtros, onCambiarFiltros, onAplicar, tipoRegion }) {
+export default function FiltrosBar({ vistas, vistaActual, onCambiarVista, filtros, onCambiarFiltros, onAplicar, tipoRegion, mostrarPalabraClave }) {
     function actualizar(campo, valor) {
         onCambiarFiltros({ ...filtros, [campo]: valor });
     }
@@ -48,6 +48,18 @@ export default function FiltrosBar({ vistas, vistaActual, onCambiarVista, filtro
             </div>
 
             <div className="row g-2 align-items-end">
+                {mostrarPalabraClave && (
+                    <div className="col-12 col-md-3">
+                        <label className="form-label mb-1" style={{ fontSize: "0.72rem" }}>Palabra clave</label>
+                        <input
+                            type="text"
+                            className="form-control form-control-sm"
+                            placeholder="Buscar fuera de tu rubro (ej: pintura)"
+                            value={filtros.palabraClave}
+                            onChange={(e) => actualizar("palabraClave", e.target.value)}
+                        />
+                    </div>
+                )}
                 <div className="col-6 col-md-2">
                     <label className="form-label mb-1" style={{ fontSize: "0.72rem" }}>Ordenar por</label>
                     <select
