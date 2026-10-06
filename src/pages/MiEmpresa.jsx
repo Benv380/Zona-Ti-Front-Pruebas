@@ -382,6 +382,12 @@ function SeccionFiltroBusqueda({ empresaId }) {
                 solo para identificarlo (ej: "Construcción"); lo que realmente filtra son las <strong>palabras
                 clave</strong> (ej: "materiales eléctricos, cemento") y la <strong>región</strong>.
             </p>
+            <p className="text-muted mb-3" style={{ fontSize: "0.85rem" }}>
+                Separá las palabras clave con <strong>comas</strong>: alcanza con que una compra coincida con
+                cualquiera de las frases. Dentro de una frase tienen que aparecer <strong>todas</strong> sus
+                palabras, en cualquier orden, en el nombre o la descripción (sin importar mayúsculas, tildes ni
+                plural). Ej: "materiales eléctricos" encuentra "MATERIALES Y ARTÍCULOS ELÉCTRICOS".
+            </p>
 
             {loading && <p className="text-muted mb-0">Cargando...</p>}
             {error && <div className="alert alert-danger">{error}</div>}
