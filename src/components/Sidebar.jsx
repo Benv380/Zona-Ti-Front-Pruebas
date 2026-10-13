@@ -14,6 +14,10 @@ const links = [
     // mas abajo. GLOBAL/USER no gestionan una empresa, no tiene sentido
     // que les aparezca.
     { to: "/mi-empresa", icon: "bi-building-gear", label: "Mi Empresa", soloEmpresa: true },
+    // Visible para GLOBAL y EMPRESA (mismo alcance que exige
+    // AsignacionController.listasParaEnviar/prepararEnvio en el backend) --
+    // enviar es accion de nivel aprobacion, no para USUARIO.
+    { to: "/enviar-mp", icon: "bi-send-check-fill", label: "Enviar a MP", soloAdmin: true },
 ];
 
 // Etiqueta legible + clase de color por alcance (ver .badge-rol-* en
@@ -52,6 +56,7 @@ export default function Sidebar() {
     const linksVisibles = links.filter((link) => {
         if (link.soloEmpresa) return claims?.alcance === "EMPRESA";
         if (link.soloGlobal) return claims?.alcance === "GLOBAL";
+        if (link.soloAdmin) return claims?.alcance === "GLOBAL" || claims?.alcance === "EMPRESA";
         return true;
     });
 

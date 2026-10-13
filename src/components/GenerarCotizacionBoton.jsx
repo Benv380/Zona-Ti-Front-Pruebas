@@ -1,19 +1,6 @@
 import { useState } from "react";
-import { authFetch, getClaims } from "../lib/api.js";
-import { generarCotizacionPdf } from "../lib/generarCotizacionPdf.js";
-
-// Convierte un blob a base64 puro (sin el prefijo "data:...;base64,") --
-// jsPDF necesita el dataURL completo para doc.addImage, asi que en
-// realidad se resuelve con el dataURL entero, no solo la parte base64
-// (ver generarCotizacionPdf.js).
-function blobADataUrl(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
-}
+import { getClaims } from "../lib/api.js";
+import { armarCotizacionPdf } from "../lib/armarCotizacionPdf.js";
 
 // Arma la cotizacion ya guardada en la fase ANALISIS (ver
 // CotizacionCompraAgil.jsx) y la muestra en la misma página -- vive en
@@ -32,24 +19,7 @@ export default function GenerarCotizacionBoton({ codigoExterno, cotizacion, inst
         setGenerando(true);
         setError(null);
         try {
-            const [resVendedor, resEmpresa] = await Promise.all([
-                authFetch("/auth/me"),
-                authFetch(`/auth/empresas/${empresaId}/marca-cotizacion`),
-            ]);
-            if (!resVendedor.ok) throw new Error("No se pudo obtener tu perfil de usuario");
-            if (!resEmpresa.ok) throw new Error("No se pudo obtener los datos de tu empresa");
-            const vendedor = await resVendedor.json();
-            const empresa = await resEmpresa.json();
-
-            let logoDataUrl = null;
-            if (empresa.tieneLogo) {
-                const resLogo = await authFetch(`/auth/empresas/${empresaId}/marca-cotizacion/logo`);
-                if (resLogo.ok) {
-                    logoDataUrl = await blobADataUrl(await resLogo.blob());
-                }
-            }
-
-            const { blob, nombre } = generarCotizacionPdf({ codigoExterno, cotizacion, institucion, vendedor, empresa, logoDataUrl });
+            const { blob, nombre } = await armarCotizacionPdf({ codigoExterno, cotizacion, institucion, empresaId });
             onGenerado(blob, nombre);
         } catch (err) {
             setError(err.message);

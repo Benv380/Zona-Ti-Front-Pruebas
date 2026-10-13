@@ -14,6 +14,7 @@ import Login from './pages/Login.jsx'
 import MiEmpresa from './pages/MiEmpresa.jsx'
 import Administracion from './pages/Administracion.jsx'
 import EmpresaDetalle from './pages/EmpresaDetalle.jsx'
+import EnviarMercadoPublico from './pages/EnviarMercadoPublico.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -26,6 +27,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/compra-agil" element={<CompraRapida />} />
             <Route path="/licitacion" element={<Licitacion />} />
             <Route path="/mi-empresa" element={<MiEmpresa />} />
+            <Route path="/enviar-mp" element={<EnviarMercadoPublico />} />
             <Route path="/administracion" element={<Administracion />} />
             <Route path="/administracion/empresas/:id" element={<EmpresaDetalle />} />
           </Route>
