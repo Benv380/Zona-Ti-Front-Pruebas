@@ -32,11 +32,15 @@ function generarRequestId() {
 // La institucion (organismo comprador) sale del detalle cacheado de la
 // compra; si no se puede leer, el PDF igual se arma con "—" en esos datos.
 async function prepararPdfCotizacion(asignacion) {
+    // La lista (listas-para-enviar) no trae la cotizacion: se pide a
+    // preparar-envio, el mismo endpoint que usa la extension.
+    const resPreparada = await authFetch(`/auth/asignaciones/${asignacion.id}/preparar-envio`);
+    if (!resPreparada.ok) throw new Error(`no se pudo obtener la cotización (estado ${resPreparada.status})`);
     let cotizacion;
     try {
-        cotizacion = JSON.parse(asignacion.cotizacionJson);
+        cotizacion = JSON.parse((await resPreparada.json()).cotizacionJson);
     } catch {
-        throw new Error("La cotización guardada no es válida.");
+        throw new Error("la cotización guardada no es válida");
     }
 
     let institucion = null;
@@ -58,7 +62,10 @@ async function prepararPdfCotizacion(asignacion) {
 // Dispara el envio y espera la respuesta final de la extension (puede
 // tardar minutos: el usuario tiene que iniciar sesion a mano en el popup de
 // Mercado Publico). Protocolo documentado en extension/src/bridge.js.
-function enviarCotizacion(asignacionId, pdfCotizacion) {
+// "nuevaSesion": true en la primera cotizacion de cada lote -- la extension
+// cierra la sesion de MP que hubiera en este navegador para que el usuario
+// inicie sesion de nuevo y se elija la empresa correcta (ver background.js).
+function enviarCotizacion(asignacionId, pdfCotizacion, nuevaSesion) {
     return new Promise((resolve, reject) => {
         const token = localStorage.getItem("token");
         if (!token) {
@@ -84,6 +91,7 @@ function enviarCotizacion(asignacionId, pdfCotizacion) {
             jwt: token,
             asignacionId,
             pdfCotizacion,
+            nuevaSesion,
         }, "*");
     });
 }
@@ -111,7 +119,7 @@ function estadoDesdeRespuesta(respuesta, avisoPdf) {
 
 // Una sola cotizacion: arma el PDF (opcional: si no se puede, se envia sin
 // el y se avisa) y espera el resultado final de la extension.
-async function enviarUna(asignacion) {
+async function enviarUna(asignacion, nuevaSesion) {
     let pdfCotizacion = null;
     let avisoPdf = null;
     try {
@@ -119,11 +127,17 @@ async function enviarUna(asignacion) {
     } catch (err) {
         avisoPdf = `No se adjuntó el PDF de la cotización (${err.message}).`;
     }
-    const respuesta = await enviarCotizacion(asignacion.id, pdfCotizacion);
+    const respuesta = await enviarCotizacion(asignacion.id, pdfCotizacion, nuevaSesion);
     return estadoDesdeRespuesta(respuesta, avisoPdf);
 }
 
-function Fila({ a, mostrarEmpresa, seleccionada, bloqueada, estado, onCambiar }) {
+// Estados del ultimo intento en los que se ofrece devolver la cotizacion
+// para corregirla: un error antes de enviar (falta el detalle, un campo que
+// MP no acepto...) o el modo prueba (se reviso el formulario y algo esta
+// mal). Nunca "por verificar": ahi la cotizacion pudo haber quedado enviada.
+const SE_PUEDE_DEVOLVER = new Set(["error", "prueba"]);
+
+function Fila({ a, mostrarEmpresa, seleccionada, bloqueada, estado, onCambiar, onDevolver }) {
     const info = estado ? ESTADOS[estado.tipo] : null;
     return (
         <label
@@ -149,6 +163,16 @@ function Fila({ a, mostrarEmpresa, seleccionada, bloqueada, estado, onCambiar })
                     <div className="text-muted" style={{ fontSize: "0.8rem" }}>Completada por {a.username}</div>
                     {estado?.texto && (
                         <div className="mt-1" style={{ fontSize: "0.85rem" }}>{estado.texto}</div>
+                    )}
+                    {!bloqueada && SE_PUEDE_DEVOLVER.has(estado?.tipo) && (
+                        <button
+                            type="button"
+                            className="btn btn-sm btn-outline-warning mt-2"
+                            onClick={(e) => { e.preventDefault(); onDevolver(a); }}
+                        >
+                            <i className="bi bi-arrow-counterclockwise me-1"></i>
+                            Devolver a Análisis para corregir
+                        </button>
                     )}
                 </div>
             </div>
@@ -217,6 +241,39 @@ export default function EnviarMercadoPublico() {
         setEstados((prev) => ({ ...prev, [id]: estado }));
     }
 
+    // Vuelve la asignacion a ANALISIS, donde se edita la cotizacion (valores,
+    // detalle, documentos). Sale de esta lista y el usuario asignado la ve de
+    // nuevo en "Mis activas"; para volver aca hay que completarla otra vez
+    // (y, si el usuario requiere supervision, aprobarla de nuevo).
+    async function devolverParaCorregir(a) {
+        if (!window.confirm(
+            `¿Devolver ${a.codigoExterno} a Análisis para corregir la cotización? `
+            + `Saldrá de esta lista y ${a.username} la verá de nuevo en "Mis activas". `
+            + "Para enviarla otra vez habrá que volver a completarla.")) {
+            return;
+        }
+        try {
+            const res = await authFetch(`/auth/asignaciones/${a.id}/estado`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ estado: "ANALISIS" }),
+            });
+            if (!res.ok) throw new Error(`El servidor respondió con estado ${res.status}`);
+            setLista((prev) => prev.filter((x) => x.id !== a.id));
+            setSeleccion((prev) => {
+                const siguiente = new Set(prev);
+                siguiente.delete(a.id);
+                return siguiente;
+            });
+            setResumen({
+                tipo: "info",
+                texto: `${a.codigoExterno} volvió a Análisis. ${a.username} puede corregir la cotización en "Mis activas".`,
+            });
+        } catch (err) {
+            ponerEstado(a.id, { ...estados[a.id], texto: `No se pudo devolver a Análisis: ${err.message}` });
+        }
+    }
+
     // Se envian de a una, en el orden de la lista: una sola ventana de MP a
     // la vez, y despues del primer inicio de sesion con Clave Unica las
     // siguientes encuentran la sesion abierta. Si una falla ANTES de enviar
@@ -257,7 +314,7 @@ export default function EnviarMercadoPublico() {
             ponerEstado(a.id, { tipo: "enviando" });
             let estado;
             try {
-                estado = await enviarUna(a);
+                estado = await enviarUna(a, i === 0);
             } catch (err) {
                 estado = { tipo: "error", texto: err.message };
             }
@@ -304,7 +361,8 @@ export default function EnviarMercadoPublico() {
             <p className="text-muted text-center" style={{ maxWidth: "640px" }}>
                 Compras Ágiles completadas y aprobadas, listas para subir su cotización a Mercado Público.
                 Seleccione las que quiere enviar: la extensión de navegador ZonaTi las envía de a una, en una ventana
-                donde usted inicia sesión (solo la primera vez). Se adjuntan el PDF de la cotización (si se puede
+                donde usted inicia sesión con Clave Única al comenzar cada envío (las siguientes del mismo envío ya
+                no lo piden). Se adjuntan el PDF de la cotización (si se puede
                 generar) y los documentos cargados en cada asignación.
             </p>
 
@@ -383,6 +441,7 @@ export default function EnviarMercadoPublico() {
                             bloqueada={enviando || estados[a.id]?.tipo === "enviada"}
                             estado={estados[a.id]}
                             onCambiar={cambiar}
+                            onDevolver={devolverParaCorregir}
                         />
                     ))}
                 </div>
