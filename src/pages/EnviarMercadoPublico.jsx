@@ -361,8 +361,7 @@ export default function EnviarMercadoPublico() {
             <p className="text-muted text-center" style={{ maxWidth: "640px" }}>
                 Compras Ágiles completadas y aprobadas, listas para subir su cotización a Mercado Público.
                 Seleccione las que quiere enviar: la extensión de navegador ZonaTi las envía de a una, en una ventana
-                donde usted inicia sesión con Clave Única al comenzar cada envío (las siguientes del mismo envío ya
-                no lo piden). Se adjuntan el PDF de la cotización (si se puede
+                donde usted inicia sesión con Clave Única si hace falta (una vez; las siguientes ya no lo piden). Se adjuntan el PDF de la cotización (si se puede
                 generar) y los documentos cargados en cada asignación.
             </p>
 

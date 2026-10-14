@@ -377,16 +377,18 @@ function SeccionFiltroBusqueda({ empresaId }) {
                 </button>
             </div>
             <p className="text-muted mb-3" style={{ fontSize: "0.85rem" }}>
-                Definen qué licitaciones y compras ágiles va a ver tu empresa -- si guardás más de uno, se
-                muestra la unión de todos (alcanza con que coincida con cualquiera). El <strong>rubro</strong> es
-                solo para identificarlo (ej: "Construcción"); lo que realmente filtra son las <strong>palabras
-                clave</strong> (ej: "materiales eléctricos, cemento") y la <strong>región</strong>.
+                Definen qué licitaciones y compras ágiles verá su empresa. Si guarda más de uno, se muestra la
+                unión de todos. Una compra aparece si coincide con el <strong>rubro</strong> o con alguna de las
+                <strong>palabras clave</strong>, buscando en su nombre, su descripción y los productos que pide, y
+                si es de la <strong>región</strong> elegida.
             </p>
             <p className="text-muted mb-3" style={{ fontSize: "0.85rem" }}>
-                Separá las palabras clave con <strong>comas</strong>: alcanza con que una compra coincida con
-                cualquiera de las frases. Dentro de una frase tienen que aparecer <strong>todas</strong> sus
-                palabras, en cualquier orden, en el nombre o la descripción (sin importar mayúsculas, tildes ni
-                plural). Ej: "materiales eléctricos" encuentra "MATERIALES Y ARTÍCULOS ELÉCTRICOS".
+                En el rubro y en las palabras clave puede separar varias frases con <strong>comas</strong>: basta
+                con que una compra coincida con cualquiera. Dentro de una frase tienen que aparecer
+                <strong>todas</strong> sus palabras, en cualquier orden, sin importar mayúsculas, tildes ni plural.
+                Ej: "materiales eléctricos" encuentra "MATERIALES Y ARTÍCULOS ELÉCTRICOS". Funcionan mejor las
+                palabras que aparecen en las compras (ej: "notebook, impresora") que las categorías muy generales
+                (ej: "tecnología").
             </p>
 
             {loading && <p className="text-muted mb-0">Cargando...</p>}
