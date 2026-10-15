@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { authFetch, getClaims } from "../lib/api.js";
 import { fechaCierreDe } from "../lib/fechas.js";
 import PendientesRevision from "../components/PendientesRevision.jsx";
+import SelectorCatalogo from "../components/SelectorCatalogo.jsx";
 import SectionHeader from "../components/SectionHeader.jsx";
 import TablaAsignaciones, { TIPOS_ASIGNACION } from "../components/TablaAsignaciones.jsx";
 import { REGIONES } from "../lib/regionesComunas.js";
@@ -108,6 +109,10 @@ function SeccionUsuarios({ empresaId }) {
 
     async function guardar(e) {
         e.preventDefault();
+        if (!form.catalogo.length && !form.palabrasClave.trim()) {
+            setErrorForm("Elija productos del catálogo o escriba palabras clave.");
+            return;
+        }
         setGuardando(true);
         setErrorForm(null);
         try {
@@ -277,7 +282,18 @@ function SeccionUsuarios({ empresaId }) {
 // Compra Ágil ("Ver mi filtro") busca la unión de todos. Ya funciona de
 // verdad (POST/PUT/DELETE /auth/.../perfiles) -- lo único pendiente es
 // poder completarlo solo con un asistente en vez de a mano.
-const FILTRO_VACIO = { nombre: "", rubro: "", palabrasClave: "", regionCodigo: "", regionNombre: "" };
+const FILTRO_VACIO = { nombre: "", rubro: "", palabrasClave: "", catalogo: [], regionCodigo: "", regionNombre: "" };
+
+// catalogoJson (texto en auth-service) -> lista de selecciones del catalogo.
+function leerCatalogo(catalogoJson) {
+    if (!catalogoJson) return [];
+    try {
+        const lista = JSON.parse(catalogoJson);
+        return Array.isArray(lista) ? lista : [];
+    } catch {
+        return [];
+    }
+}
 
 function SeccionFiltroBusqueda({ empresaId }) {
     const [perfiles, setPerfiles] = useState([]);
@@ -322,6 +338,7 @@ function SeccionFiltroBusqueda({ empresaId }) {
             nombre: perfil.nombre || "",
             rubro: perfil.rubro || "",
             palabrasClave: perfil.palabrasClave || "",
+            catalogo: leerCatalogo(perfil.catalogoJson),
             regionCodigo: perfil.regionCodigo || "",
             regionNombre: perfil.regionNombre || "",
         });
@@ -339,7 +356,15 @@ function SeccionFiltroBusqueda({ empresaId }) {
             const res = await authFetch(url, {
                 method: esEdicion ? "PUT" : "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(form),
+                body: JSON.stringify({
+                    nombre: form.nombre,
+                    rubro: form.rubro,
+                    // Con catalogo, las palabras clave no se usan (ver ayuda).
+                    palabrasClave: form.catalogo.length ? "" : form.palabrasClave,
+                    catalogoJson: form.catalogo.length ? JSON.stringify(form.catalogo) : null,
+                    regionCodigo: form.regionCodigo,
+                    regionNombre: form.regionNombre,
+                }),
             });
             if (!res.ok) {
                 const texto = await res.text().catch(() => "");
@@ -371,24 +396,22 @@ function SeccionFiltroBusqueda({ empresaId }) {
     return (
         <div className="card-panel mb-4">
             <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                <SectionHeader icono="bi-funnel-fill" titulo="Filtros de búsqueda" subtitulo="Rubro, palabras clave y región" />
+                <SectionHeader icono="bi-funnel-fill" titulo="Filtros de búsqueda" subtitulo="Productos del catálogo y región" />
                 <button type="button" className="btn btn-primary btn-sm" onClick={abrirCreacion}>
                     + Nuevo filtro
                 </button>
             </div>
             <p className="text-muted mb-3" style={{ fontSize: "0.85rem" }}>
                 Definen qué licitaciones y compras ágiles verá su empresa. Si guarda más de uno, se muestra la
-                unión de todos. Una compra aparece si coincide con el <strong>rubro</strong> o con alguna de las
-                <strong>palabras clave</strong>, buscando en su nombre, su descripción y los productos que pide, y
-                si es de la <strong>región</strong> elegida.
+                unión de todos. Recomendado: elegir del <strong>catálogo de productos de Mercado Público</strong>
+                (familias, clases o productos puntuales). Así una compra aparece solo si pide un producto de lo
+                elegido, comparando el código oficial del catálogo: nada distinto a lo configurado. Además, tiene
+                que ser de la <strong>región</strong> elegida.
             </p>
             <p className="text-muted mb-3" style={{ fontSize: "0.85rem" }}>
-                En el rubro y en las palabras clave puede separar varias frases con <strong>comas</strong>: basta
-                con que una compra coincida con cualquiera. Dentro de una frase tienen que aparecer
-                <strong>todas</strong> sus palabras, en cualquier orden, sin importar mayúsculas, tildes ni plural.
-                Ej: "materiales eléctricos" encuentra "MATERIALES Y ARTÍCULOS ELÉCTRICOS". Funcionan mejor las
-                palabras que aparecen en las compras (ej: "notebook, impresora") que las categorías muy generales
-                (ej: "tecnología").
+                Los filtros sin catálogo usan el <strong>rubro</strong> y las <strong>palabras clave</strong>
+                (separadas por comas) buscando en el texto de cada compra. Ese método puede traer compras de otros
+                rubros cuando una palabra se usa en varios sentidos; conviene pasarlos al catálogo.
             </p>
 
             {loading && <p className="text-muted mb-0">Cargando...</p>}
@@ -404,7 +427,7 @@ function SeccionFiltroBusqueda({ empresaId }) {
                                 <tr>
                                     <th>Nombre</th>
                                     <th className="d-none d-md-table-cell">Rubro</th>
-                                    <th className="d-none d-md-table-cell">Palabras clave</th>
+                                    <th className="d-none d-md-table-cell">Criterio</th>
                                     <th>Región</th>
                                     <th></th>
                                 </tr>
@@ -414,7 +437,20 @@ function SeccionFiltroBusqueda({ empresaId }) {
                                     <tr key={p.id}>
                                         <td>{p.nombre}</td>
                                         <td className="d-none d-md-table-cell">{p.rubro || "-"}</td>
-                                        <td className="d-none d-md-table-cell">{p.palabrasClave || "-"}</td>
+                                        <td className="d-none d-md-table-cell">
+                                            {leerCatalogo(p.catalogoJson).length ? (
+                                                <span>
+                                                    <span className="badge bg-success me-1">Catálogo</span>
+                                                    {leerCatalogo(p.catalogoJson).map((s) => s.nombre).join(", ")}
+                                                </span>
+                                            ) : (
+                                                <span>
+                                                    <span className="badge bg-warning text-dark me-1"
+                                                        title="Busca por texto: puede traer compras de otros rubros">Palabras clave</span>
+                                                    {p.palabrasClave || "-"}
+                                                </span>
+                                            )}
+                                        </td>
                                         <td>{p.regionNombre || "Todo el país"}</td>
                                         <td className="text-end">
                                             <button type="button" className="btn btn-sm btn-outline-secondary me-2" onClick={() => abrirEdicion(p)}>
@@ -446,9 +482,20 @@ function SeccionFiltroBusqueda({ empresaId }) {
                             <input className="form-control" placeholder="Ej: Construcción" value={form.rubro} required
                                 onChange={(e) => setForm((f) => ({ ...f, rubro: e.target.value }))} />
                         </div>
+                        <div className="col-12">
+                            <label className="form-label mb-1" style={{ fontSize: "0.85rem" }}>
+                                Productos del catálogo de Mercado Público <span className="text-muted">(recomendado)</span>
+                            </label>
+                            <SelectorCatalogo seleccion={form.catalogo}
+                                onChange={(catalogo) => setForm((f) => ({ ...f, catalogo }))} />
+                        </div>
                         <div className="col-md-4">
-                            <label className="form-label" style={{ fontSize: "0.85rem" }}>Palabras clave</label>
-                            <input className="form-control" placeholder="Ej: materiales electricos" value={form.palabrasClave} required
+                            <label className="form-label" style={{ fontSize: "0.85rem" }}>
+                                Palabras clave <span className="text-muted">(solo sin catálogo)</span>
+                            </label>
+                            <input className="form-control" placeholder="Ej: materiales eléctricos" value={form.palabrasClave}
+                                disabled={form.catalogo.length > 0}
+                                title={form.catalogo.length > 0 ? "Con productos del catálogo, las palabras clave no se usan" : undefined}
                                 onChange={(e) => setForm((f) => ({ ...f, palabrasClave: e.target.value }))} />
                         </div>
                         <div className="col-md-4">
